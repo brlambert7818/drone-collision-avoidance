@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-# test comment
-
 import gym
 import rospy
 import time
@@ -120,8 +118,10 @@ class MultiQuadCopterEnvDeep(gym.Env):
 
         return observation_n
 
-    def orientation(selfs, ros_data):
+
+    def orientation(self, ros_data):
         return np.array([ros_data.orientation.x,ros_data.orientation.y,ros_data.orientation.z, ros_data.orientation.w])
+
 
     def process_action(self, action, i):
 

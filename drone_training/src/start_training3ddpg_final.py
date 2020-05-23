@@ -107,7 +107,6 @@ class ActorNetwork(object):
     def get_num_trainable_vars(self):
         return self.num_trainable_vars
 
-
 class CriticNetwork(object):
 
     def __init__(self, sess, state_dim, action_dim, learning_rate, tau, gamma, num_actor_vars):
