@@ -148,12 +148,12 @@ class GazeboConnection():
         try:
             rate = rospy.Rate(10)
             takeoff_msg = FullState()
-            takeoff_msg.pose.position.z = 1
+            takeoff_msg.pose.position.z = 5
             takeoff_msg.pose.position.y = 0
             takeoff_msg.pose.position.x = 0
             rospy.loginfo("Go Home Start")
             i = 0
-            while i < 100:
+            while i < 200:
                 self.takeoff_pub.publish(takeoff_msg)
                 i += 1
                 rate.sleep()

@@ -7,8 +7,6 @@ from gym import wrappers
 import rospy
 import rospkg
 
-
-
 import myquadcopter_env3deep
 
 import matplotlib.pyplot as plt
