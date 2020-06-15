@@ -8,38 +8,18 @@ import roslaunch
 import rospy
 import time
 from crazyflie_driver.msg import Hover, GenericLogData, Position, FullState
+import numpy as np
 
 class GazeboConnection():
 
     def __init__(self):
         self.unpause = rospy.ServiceProxy('/gazebo/unpause_physics', Empty)
         self.pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
-
         self.reset_proxy = rospy.ServiceProxy('/gazebo/reset_simulation', Empty)
+
+        self.reset_world = rospy.ServiceProxy('/gazebo/reset_world', Empty)
         self.reset_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
-
-        self.reset_diocane = rospy.ServiceProxy('/gazebo/delete_model', DeleteModel)
-
-        self.state_msg = ModelState()
-        self.state_msg.model_name = 'cf1'
-        self.state_msg.pose.position.x = 0
-        self.state_msg.pose.position.y = 0
-        self.state_msg.pose.position.z = 0.03
-        self.state_msg.pose.orientation.x = 0
-        self.state_msg.pose.orientation.y = 0
-        self.state_msg.pose.orientation.z = 0
-        self.state_msg.pose.orientation.w = 1
-        self.state_msg.twist.linear.x = 0
-        self.state_msg.twist.linear.y = 0
-        self.state_msg.twist.linear.z = 0
-        self.state_msg.twist.angular.x = 0
-        self.state_msg.twist.angular.y = 0
-        self.state_msg.twist.angular.z = 0
-
         self.takeoff_pub = rospy.Publisher('/cf1/cmd_full_state', FullState, queue_size=1)
-        self.takeoff_pub1 = rospy.Publisher('/cf1/cmd_full_state', FullState, queue_size=1)
-        self.takeoff_pub2 = rospy.Publisher('/cf2/cmd_full_state', FullState, queue_size=1)
-        self.takeoff_pub3 = rospy.Publisher('/cf3/cmd_full_state', FullState, queue_size=1)
 
 
     def pauseSim(self):
@@ -61,167 +41,55 @@ class GazeboConnection():
     def resetSim(self):
         rospy.wait_for_service('/gazebo/reset_simulation')
         try:
+            rospy.loginfo('Reset cf state')
             self.reset_proxy()
         except rospy.ServiceException, e:
-            print ("/gazebo/reset_simulation service call failed")
+            rospy.loginfo('Reset cf state failed')
+
+
+    def resetSim_2(self):
+        rospy.wait_for_service('/gazebo/reset_world')
+        try:
+            rospy.loginfo('Reset cf state')
+            self.reset_world()
+        except rospy.ServiceException, e:
+            rospy.loginfo('Reset cf state failed')
 
 
     def resetSim_new(self):
         rospy.wait_for_service('/gazebo/set_model_state')
         try:
             self.reset_state(self.state_msg)
-            self.pause()
+            # self.pause()
+            print('reset new finished!')
         except rospy.ServiceException, e:
             print("/gazebo/reset_simulation service call failed")
 
 
-    def resetSim_new2(self):
-        rospy.wait_for_service('/gazebo/set_model_state')
+    def reset_position(self):
         try:
-            rase = rospy.Rate(10)
-            self.reset_diocane('cf1')
-            uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
-            roslaunch.configure_logging(uuid)
-            launch = roslaunch.parent.ROSLaunchParent(uuid,
-                                                      ["/home/alberto/catkin_ws5/src/sim_cf/crazyflie_gazebo/launch/spawn_mav2.launch"])
-            launch.start()
-            rospy.loginfo("Spawn started")
-            asd = 0
-            while asd < 50:
-                rase.sleep()
-                asd += 1
-            rospy.loginfo("Spawn ended")
+            reset_msg = FullState()
+            reset_msg.pose.position.x = 0
+            reset_msg.pose.position.y = 0
+            reset_msg.pose.position.z = 5
 
-            # 3 seconds later
-            #launch.shutdown()
-
-        except rospy.ServiceException, e:
-            print("/gazebo/reset_simulation service call failed")
-
-
-    def resetSim_new5(self):
-        rospy.wait_for_service('/gazebo/set_model_state')
-        try:
-
-            rase = rospy.Rate(10)
-            self.reset_diocane('cf1')
-            self.reset_diocane('cf2')
-            self.reset_diocane('cf3')
-            uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
-            roslaunch.configure_logging(uuid)
-            launch = roslaunch.parent.ROSLaunchParent(uuid,
-                                                      [
-                                                          "/home/alberto/catkin_ws5/src/sim_cf/crazyflie_gazebo/launch/3_cf_sim_reset.launch"])
-            launch.start()
-            rospy.loginfo("Spawn started")
-            asd = 0
-            while asd < 50:
-                rase.sleep()
-                asd += 1
-            rospy.loginfo("Spawn ended")
-
-            # 3 seconds later
-            # launch.shutdown()
-
-        except rospy.ServiceException, e:
-            print("/gazebo/reset_simulation service call failed")
-
-
-    def resetSim_new3(self):
-        try:
-            takeoff_msg = Position()
-            takeoff_msg.z = 1
-            takeoff_msg.y = 0
-            takeoff_msg.x = 0
             rospy.loginfo("Go Home Start")
-            i = 0
-            while i<100:
-                self.takeoff_pub.publish(takeoff_msg)
-                i += 1
-
-            rospy.loginfo("Go Home completed")
-        except rospy.ServiceException, e:
-            print("/gazebo/reset_simulation service call failed")
-
-
-    def resetSim_definitive(self):
-        try:
             rate = rospy.Rate(10)
-            takeoff_msg = FullState()
-            takeoff_msg.pose.position.z = 5
-            takeoff_msg.pose.position.y = 0
-            takeoff_msg.pose.position.x = 0
-            rospy.loginfo("Go Home Start")
-            i = 0
-            while i < 200:
-                self.takeoff_pub.publish(takeoff_msg)
-                i += 1
+            dist = np.inf
+            while dist > 1:
+                self.takeoff_pub.publish(reset_msg)
+                cf_position = rospy.wait_for_message('/cf1/local_position', GenericLogData, timeout=5)
+                dist = self.distance_between_points(cf_position.values[:3], (0, 0, 5))
                 rate.sleep()
 
             rospy.loginfo("Go Home completed")
-        except rospy.ServiceException, e:
-            print("Go Home not owrking")
 
-
-    def resetSim_definitive3(self):
-        try:
-            rate = rospy.Rate(10)
-            takeoff_msg1 = FullState()
-            takeoff_msg1.pose.position.z = 0.5
-            takeoff_msg1.pose.position.y = 3
-            takeoff_msg1.pose.position.x = 0
-
-            takeoff_msg2 = FullState()
-            takeoff_msg2.pose.position.z = 1
-            takeoff_msg2.pose.position.y = 0
-            takeoff_msg2.pose.position.x = 0
-
-            takeoff_msg3 = FullState()
-            takeoff_msg3.pose.position.z = 2
-            takeoff_msg3.pose.position.y = -3
-            takeoff_msg3.pose.position.x = 0
-
-            #rospy.loginfo("Go Home Start")
-            i = 0
-            while i < 100:
-                self.takeoff_pub1.publish(takeoff_msg1)
-                self.takeoff_pub2.publish(takeoff_msg2)
-                self.takeoff_pub3.publish(takeoff_msg3)
-                i += 1
-                rate.sleep()
-
-            #rospy.loginfo("Go Home completed")
         except rospy.ServiceException, e:
             print("Go Home not working")
 
 
-    def resetSim_definitive4(self):
-        try:
-            rate = rospy.Rate(10)
-            takeoff_msg1 = FullState()
-            takeoff_msg1.pose.position.z = 0.7
-            takeoff_msg1.pose.position.y = 3
-            takeoff_msg1.pose.position.x = 0
-
-            takeoff_msg2 = FullState()
-            takeoff_msg2.pose.position.z = 1
-            takeoff_msg2.pose.position.y = 0
-            takeoff_msg2.pose.position.x = 0
-
-            takeoff_msg3 = FullState()
-            takeoff_msg3.pose.position.z = 1.3
-            takeoff_msg3.pose.position.y = -3
-            takeoff_msg3.pose.position.x = 0
-
-            #rospy.loginfo("Go Home Start")
-            i = 0
-            while i < 90:
-                self.takeoff_pub1.publish(takeoff_msg1)
-                self.takeoff_pub2.publish(takeoff_msg2)
-                self.takeoff_pub3.publish(takeoff_msg3)
-                i += 1
-                rate.sleep()
-
-            #rospy.loginfo("Go Home completed")
-        except rospy.ServiceException, e:
-            print("Go Home not working")
+    def distance_between_points(self, point_a, point_b):
+        a = np.array(point_a)
+        b = np.array(point_b)
+        dist = np.linalg.norm(a - b)
+        return dist

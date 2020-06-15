@@ -13,6 +13,8 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 import numpy as np
 
+import os
+
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -152,11 +154,11 @@ def main():
 
     ############## Hyperparameters ##############
     env_name = "Crazyflie-v0"
-    render = False
+    train = True 
     log_interval = 499           # print avg reward in the interval
     # max_episodes = 10000        # max training episodes
     max_episodes = 1000        # max training episodes
-    max_timesteps = 500        # max timesteps in one episode
+    max_timesteps = 350       # max timesteps in one episode
     
     update_timestep = 1000       # update policy every n timesteps
     action_std = 1.0            # constant std for action distribution (Multivariate Normal)
@@ -183,16 +185,25 @@ def main():
     
     memory = Memory()
     ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip)
-    print(lr,betas)
+
+    param_path = './PPO_continuous_Crazyflie-v0_full.pth'
+    ppo.policy.load_state_dict(torch.load(param_path))
+
+    # set the learned model parameters if in testing mode 
+    if not train:
+        param_path = './PPO_continuous_Crazyflie-v0_full.pth'
+        ppo.policy.load_state_dict(torch.load(param_path))
     
     # logging variables
     running_reward = 0
     avg_length = 0
-    time_step = 0
     
     # training loop
     for i_episode in range(1, max_episodes+1):
+        time_step = 0
         state = env.reset()
+        print('episode: ', i_episode)
+
         for t in range(max_timesteps):
             print('t: ', t)
             time_step +=1
@@ -200,21 +211,21 @@ def main():
             action = ppo.select_action(state, memory)
             print('action: ', action)
             state, reward, done, _ = env.step(action)
-            print('reward: ', reward)
             print('state: ', state)
-            
-            # Saving reward and is_terminals:
-            memory.rewards.append(reward)
-            memory.is_terminals.append(done)
-            
-            # update if its time
-            if time_step % update_timestep == 0:
-                ppo.update(memory)
-                memory.clear_memory()
-                time_step = 0
+
+            if train:
+                # Saving reward and is_terminals:
+                memory.rewards.append(reward)
+                memory.is_terminals.append(done)
+
+                # update if its time
+                if time_step % update_timestep == 0:
+                    ppo.update(memory)
+                    memory.clear_memory()
+                    time_step = 0
+
             running_reward += reward
-            if render:
-                env.render()
+
             if done:
                 print('done')
                 break
@@ -241,7 +252,9 @@ def main():
             avg_length = 0
         
         # save model after each episode
-        torch.save(ppo.policy.state_dict(), './PPO_continuous_{}_full.pth'.format(env_name))
+        if train:
+            torch.save(ppo.policy.state_dict(), './PPO_cf_{}.pth'.format(env_name))
+
             
 if __name__ == '__main__':
     main()
