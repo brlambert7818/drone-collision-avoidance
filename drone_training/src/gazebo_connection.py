@@ -2,7 +2,7 @@
 
 import rospy
 from std_srvs.srv import Empty
-from gazebo_msgs.srv import SetModelState, DeleteModel
+from gazebo_msgs.srv import SetModelState, DeleteModel, GetModelState
 from gazebo_msgs.msg import ModelState
 import roslaunch
 import rospy
@@ -71,7 +71,7 @@ class GazeboConnection():
             reset_msg = FullState()
             reset_msg.pose.position.x = 0
             reset_msg.pose.position.y = 0
-            reset_msg.pose.position.z = 5
+            reset_msg.pose.position.z = 3
 
             rospy.loginfo("Go Home Start")
             rate = rospy.Rate(10)
@@ -79,7 +79,7 @@ class GazeboConnection():
             while dist > 1:
                 self.takeoff_pub.publish(reset_msg)
                 cf_position = rospy.wait_for_message('/cf1/local_position', GenericLogData, timeout=5)
-                dist = self.distance_between_points(cf_position.values[:3], (0, 0, 5))
+                dist = self.distance_between_points(cf_position.values[:3], (0, 0, 3))
                 rate.sleep()
 
             rospy.loginfo("Go Home completed")
@@ -93,3 +93,4 @@ class GazeboConnection():
         b = np.array(point_b)
         dist = np.linalg.norm(a - b)
         return dist
+
