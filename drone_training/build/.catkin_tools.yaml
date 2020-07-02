@@ -1,0 +1,6 @@
+devel_space: /home/brian/catkin_ws/src/drone-collision-avoidance/drone_training/devel
+install: false
+install_space: /home/brian/catkin_ws/src/drone-collision-avoidance/drone_training/install
+profile: default
+source_space: /home/brian/catkin_ws/src/drone-collision-avoidance/drone_training/src
+workspace: /home/brian/catkin_ws/src/drone-collision-avoidance/drone_training

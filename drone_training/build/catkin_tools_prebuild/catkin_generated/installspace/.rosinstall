@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/brian/catkin_ws/src/drone-collision-avoidance/drone_training/install/setup.sh

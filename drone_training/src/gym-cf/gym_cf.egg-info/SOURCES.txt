@@ -1,0 +1,7 @@
+README.md
+setup.py
+gym_cf.egg-info/PKG-INFO
+gym_cf.egg-info/SOURCES.txt
+gym_cf.egg-info/dependency_links.txt
+gym_cf.egg-info/requires.txt
+gym_cf.egg-info/top_level.txt

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rospy
 from std_srvs.srv import Empty
@@ -26,7 +26,7 @@ class GazeboConnection():
         rospy.wait_for_service('/gazebo/pause_physics')
         try:
             self.pause()
-        except rospy.ServiceException, e:
+        except rospy.ServiceException:
             print ("/gazebo/pause_physics service call failed")
 
 
@@ -34,7 +34,7 @@ class GazeboConnection():
         rospy.wait_for_service('/gazebo/unpause_physics')
         try:
             self.unpause()
-        except rospy.ServiceException, e:
+        except rospy.ServiceException:
             print ("/gazebo/unpause_physics service call failed")
 
 
@@ -43,7 +43,7 @@ class GazeboConnection():
         try:
             rospy.loginfo('Reset cf state')
             self.reset_proxy()
-        except rospy.ServiceException, e:
+        except rospy.ServiceException:
             rospy.loginfo('Reset cf state failed')
 
 
@@ -52,7 +52,7 @@ class GazeboConnection():
         try:
             rospy.loginfo('Reset cf state')
             self.reset_world()
-        except rospy.ServiceException, e:
+        except rospy.ServiceException:
             rospy.loginfo('Reset cf state failed')
 
 
@@ -62,7 +62,7 @@ class GazeboConnection():
             self.reset_state(self.state_msg)
             # self.pause()
             print('reset new finished!')
-        except rospy.ServiceException, e:
+        except rospy.ServiceException:
             print("/gazebo/reset_simulation service call failed")
 
 
@@ -84,13 +84,5 @@ class GazeboConnection():
 
             rospy.loginfo("Go Home completed")
 
-        except rospy.ServiceException, e:
+        except rospy.ServiceException:
             print("Go Home not working")
-
-
-    def distance_between_points(self, point_a, point_b):
-        a = np.array(point_a)
-        b = np.array(point_b)
-        dist = np.linalg.norm(a - b)
-        return dist
-

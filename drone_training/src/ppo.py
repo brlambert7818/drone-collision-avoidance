@@ -5,14 +5,11 @@ import time
 from gym import wrappers
 import rospy
 import rospkg 
-
 import cf_gym_env 
-
 import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 import numpy as np
-
 import os
 
 
@@ -155,17 +152,17 @@ def main():
     ############## Hyperparameters ##############
     env_name = "Crazyflie-v0"
     train = True 
-    log_interval = 4096           # print avg reward in the interval
-    max_episodes = 20       # max training episodes
-    max_timesteps = 4096       # max timesteps in one episode
+    # log_interval = 4096           # print avg reward in the interval
+    max_episodes = 1000       # max training episodes
+    max_timesteps = 300       # max timesteps in one episode
     
-    update_timestep = 64       # update policy every n timesteps
+    update_timestep = 1200       # update policy every n timesteps
     action_std = 1.0            # constant std for action distribution (Multivariate Normal)
     K_epochs = 100               # update policy for K epochs
     eps_clip = 0.2              # clip parameter for PPO
-    gamma = 0.995                # discount factor
+    gamma = 0.99                # discount factor
     
-    lr = 1e-5                # parameters for Adam optimizer
+    lr = 0.0005                # parameters for Adam optimizer
     betas = (0.9, 0.999)
     
     random_seed = None
@@ -186,7 +183,7 @@ def main():
     ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip)
 
     # load previously trained params to continue training
-    # param_path = './PPO_velocities_Crazyflie-v0.pth'
+    # param_path = './PPO_altitude_Crazyflie-v0.pth'
     # ppo.policy.load_state_dict(torch.load(param_path))
 
     # set the learned model parameters if in testing mode 
@@ -210,8 +207,7 @@ def main():
             # Running policy_old:
             action = ppo.select_action(state, memory)
             print('action: ', action)
-            training_done = i_episode == max_episodes and t == max_timesteps - 1 
-            state, reward, done, _ = env.step(action, training_done)
+            state, reward, done, _ = env.step(action)
             print('state: ', state)
 
             if train:
@@ -224,10 +220,6 @@ def main():
                     ppo.update(memory)
                     memory.clear_memory()
                     time_step = 0
-
-                    # update saved model parameters if in training mode
-                    if train:
-                        torch.save(ppo.policy.state_dict(), './PPO_altitude_{}.pth'.format(env_name))
 
             running_reward += reward
 
@@ -259,10 +251,8 @@ def main():
         
         # save model after each episode
         # if train:
-        #     torch.save(ppo.policy.state_dict(), './PPO_cf_velocities_v0{}.pth'.format(env_name))
-
-    # Kill simulation process after training is completed
-    # env.kill_sim()
+        #     torch.save(ppo.policy.state_dict(), './PPO_altitude_{}.pth'.format(env_name))
             
+
 if __name__ == '__main__':
     main()
