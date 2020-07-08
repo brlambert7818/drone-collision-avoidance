@@ -4,7 +4,6 @@ import gym
 import rospy
 import time
 import numpy as np
-# import tf
 import time
 from gym import utils, spaces
 from geometry_msgs.msg import Twist, Vector3Stamped, Pose
@@ -17,7 +16,7 @@ from crazyflie_driver.msg import Hover, GenericLogData, Position, FullState
 import signal 
 import os
 import subprocess
-
+import crazyflie
 
 reg = register(
     id='Crazyflie-v0',
@@ -28,28 +27,21 @@ class CrazyflieEnv(gym.Env):
 
     def __init__(self):
 
-        self.rate = rospy.Rate(10)
-        self.position_pub = rospy.Publisher('/cf1/cmd_full_state', FullState, queue_size=1)
-        self.vel_pub = rospy.Publisher('/cf1/cmd_hover', Hover, queue_size=1)
+        self.cf = None
 
-        # gets training parameters from param server
-        self.speed_value = rospy.get_param("drone1/speed_value")
-        self.goal = Pose()
-        self.goal.position.x = rospy.get_param("/goal/desired_pose/x")
-        self.goal.position.y = rospy.get_param("/goal/desired_pose/y")
-        self.goal.position.z = rospy.get_param("/goal/desired_pose/z")
-        self.goal_position = np.array((self.goal.position.x, self.goal.position.y, self.goal.position.z))
-        self.running_step = rospy.get_param("/drone1/running_step")
-        self.max_incl = rospy.get_param("/drone1/max_incl")
-        self.max_altitude = rospy.get_param("/drone1/max_altitude")
-        self.max_speed = rospy.get_param("/drone1/speed_value")
+        # Low-level Crazyflie control methods
+        self.position_pub = rospy.Publisher('/cf1/cmd_full_state', FullState, queue_size=1)
+        self.hover_pub = rospy.Publisher('/cf1/cmd_hover', Hover, queue_size=1)
+        self.vel_pub = rospy.Publisher('/cf1/cmd_vel', Twist, queue_size=1)
+
+        self.goal_position = np.array((5, 5, 5))
 
         # establishes connection with simulator
         self.gazebo_process, self.cf_process = self.launch_sim()
 
-        # spaces
-        self.action_space = spaces.Box(low=-self.max_speed, high=+self.max_speed, shape=(3,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(12,), dtype=np.float32)
+        # Gym spaces
+        self.action_space = spaces.Box(low=np.array([-0.4, -0.4, 0]), high=np.array([0.4, 0.4, 9.5]), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-10, high=10, shape=(12,), dtype=np.float32)
         self.reward_range = (-np.inf, np.inf)
 
         self.is_launch = True
@@ -69,81 +61,8 @@ class CrazyflieEnv(gym.Env):
         return [seed]
 
 
-    def reset(self):
-        """ Returns the drone to a starting postion to begin a new training episode. 
-
-        Returns:
-            ndarray (dtype=float, ndim=1): Array containing the current state observation.  
-        """
-
-        self.gazebo.unpauseSim()
-        self.sim_reset = True
-
-        if not self.is_launch:
-            # reset yaw to avoid flipping during reset
-            # final_position = np.array(self.get_observation().values[:3])
-            final_position = self.get_observation()[:3]
-
-            stabilize_msg = FullState()
-            stabilize_msg.pose.position.x = final_position[0]
-            stabilize_msg.pose.position.y = final_position[1]
-            stabilize_msg.pose.position.z = final_position[2]
-
-            rate = rospy.Rate(10)
-            i = 0
-            while i < 20:
-                self.position_pub.publish(stabilize_msg)
-                i += 1
-                rate.sleep()
-
-        # reset to starting positon after stabilization
-        self.reset_position()
-
-        observation = self.get_observation()
-
-        self.gazebo.pauseSim()
-
-        self.is_launch = False 
-
-        return observation
-
-    
-    def reset_position(self):
-        """ Returns the drone to the starting position.
-        """
-        try:
-            reset_msg = FullState()
-            reset_msg.pose.position.x = 0
-            reset_msg.pose.position.y = 0
-            reset_msg.pose.position.z = 2
-
-            rospy.loginfo("Go Home Start")
-            rate = rospy.Rate(10)
-            dist = np.inf
-            sim_reset = False
-            while dist > 0.1:
-                self.position_pub.publish(reset_msg)
-                cf_position = self.get_observation()[:3]
-                dist = self.distance_between_points(cf_position, np.array((0, 0, 2)))
-
-                # Check if drone has flipped over during reset
-                # Ensure that the sim was not just reset or will enter reset loop
-                # because the drone will spawn at z < -0.04 
-                # if not sim_reset and cf_position[2] < -0.04:
-                #     sim_reset = True
-                #     self.kill_sim()
-                #     time.sleep(20)
-                #     self.gazebo_process, self.cf_process = self.launch_sim()
-
-                rate.sleep()
-
-            rospy.loginfo("Go Home completed")
-
-        except rospy.ServiceException:
-            print("Go Home not working")
-
-
     def launch_sim(self):
+
         """ Executes bash commands to launch the Gazebo simulation, spawn a Crazyflie 
         UAV, and create a controller for the Crazyflie.
 
@@ -176,176 +95,28 @@ class CrazyflieEnv(gym.Env):
         # subprocess.Popen('killall -9 gzserver gzclient'.split(' '), shell=False)
 
         self.is_launch = True
+ 
 
-
-    def process_action(self, action):
-        """ Converts an array of actions into the necessary ROS msg type.
-
-        Args:
-            action (ndarray): Array containing the desired velocties along the 
-            x, y, and z axes. 
-
-        Returns:
-            Hover: ROS msg type necessary to publish a velocity command.  
-        """
-        # clip x and y actions to prevent flipping
-        # action_clip = np.clip(action, a_min = -0.3, a_max= 0.3)
-
-        vel_cmd = Hover()
-        vel_cmd.vx = action[0] 
-        vel_cmd.vy = action[1] 
-        vel_cmd.zDistance = action[2]
-        vel_cmd.yawrate = 0 
-
-        # higher level action control if low level fails
-        # bump_msg = FullState()
-        # bump_msg.pose.position.x = action[0] 
-        # bump_msg.pose.position.y = action[1]
-        # bump_msg.pose.position.z = action[2] 
-        # self.position_pub.publish(bump_msg)
-
-        # rate = rospy.Rate(10)
-        # i = 0
-        # while i < 5:
-        #     self.position_pub.publish(bump_msg)
-        #     i += 1
-        #     rate.sleep()
-
-        return vel_cmd
-
-
-    def step(self, action):
-        """ Executes an action and returns the resulting reward, state, and if 
-        the episode has terminated.
-
-        Args:
-            action (Hover): Desired velocties along the x, y, and z axes. 
+    def reset(self):
+        """ Returns the drone to a starting postion to begin a new training episode. 
 
         Returns:
             ndarray (dtype=float, ndim=1): Array containing the current state observation.  
-            int: Reward recieved from taking the action.
-            bool: Whether or not the drone reached a terminal state as a result of
-            of the action taken.
         """
 
-        self.sim_reset = False
-        vel_cmd = self.process_action(action)
+        self.cf = crazyflie.Crazyflie("cf1", "/cf1") 
+        self.cf.setParam("commander/enHighLevel", 1)
 
         self.gazebo.unpauseSim()
 
-        self.vel_pub.publish(vel_cmd)
-        time.sleep(self.running_step)
+        self.cf.takeoff(targetHeight = 2.0, duration = 0.3)
+        time.sleep(4)
 
         observation = self.get_observation()
-        is_flipped = False
-
-        # check if drone has flipped during step (i.e. roll >= 60 degrees) 
-        if abs(observation[-3]) >= 60:
-            print('FLIPPED....')
-            is_flipped = True
-            print('state: ', observation)
-
-        else:
-            if observation[2] < 0.7:
-                # check if drone is at rest
-                if observation[2] < -0.04 and (abs(observation[3]) < 0.005 and abs(observation[4]) < 0.005):
-                    print('STATIONARY....')
-                #     is_flipped = True
-                # stops cf from getting legs stuck in ground plane 
-                else:
-                    bump_msg = FullState()
-                    bump_msg.pose.position.x = observation[0]
-                    bump_msg.pose.position.y = observation[1]
-                    bump_msg.pose.position.z = 0.7 
-
-                    rate = rospy.Rate(10)
-                    i = 0
-                    while i < 5:
-                        self.position_pub.publish(bump_msg)
-                        i += 1
-                        rate.sleep()
-
-                    # new position due to 'barrier' in env
-                    observation = self.get_observation()
-
-
-            # bounce drone off right wall
-            if observation[0] > 9.5:
-                bump_msg = FullState()
-                bump_msg.pose.position.x = 9.0 
-                bump_msg.pose.position.y = observation[1]
-                bump_msg.pose.position.z = observation[2] 
-
-                rate = rospy.Rate(10)
-                i = 0
-                while i < 5:
-                    self.position_pub.publish(bump_msg)
-                    i += 1
-                    rate.sleep()
-
-                # new position due to 'barrier' in env
-                observation = self.get_observation()
-            # bounce drone off left wall
-            if observation[0] < -9.5:
-                bump_msg = FullState()
-                bump_msg.pose.position.x = -9.0 
-                bump_msg.pose.position.y = observation[1]
-                bump_msg.pose.position.z = observation[2] 
-
-                rate = rospy.Rate(10)
-                i = 0
-                while i < 5:
-                    self.position_pub.publish(bump_msg)
-                    i += 1
-                    rate.sleep()
-
-                # new position due to 'barrier' in env
-                observation = self.get_observation()
-            # bounce drone off back wall
-            if observation[1] > 9.5:
-                bump_msg = FullState()
-                bump_msg.pose.position.x = observation[0] 
-                bump_msg.pose.position.y = 9.0
-                bump_msg.pose.position.z = observation[2] 
-
-                rate = rospy.Rate(10)
-                i = 0
-                while i < 5:
-                    self.position_pub.publish(bump_msg)
-                    i += 1
-                    rate.sleep()
-
-                # new position due to 'barrier' in env
-                observation = self.get_observation()
-            # bounce drone off front wall
-            if observation[1] < -9.5:
-                bump_msg = FullState()
-                bump_msg.pose.position.x = observation[0] 
-                bump_msg.pose.position.y = -9.0 
-                bump_msg.pose.position.z = observation[2] 
-
-                rate = rospy.Rate(10)
-                i = 0
-                while i < 5:
-                    self.position_pub.publish(bump_msg)
-                    i += 1
-                    rate.sleep()
-
-                # new position due to 'barrier' in env
-                observation = self.get_observation()
-
-
-        # analyze results 
         self.gazebo.pauseSim()
-        reward, is_terminal = self.reward(observation, is_flipped) 
+        self.is_launch = False 
 
-        # restart simulation if drone has flipped
-        if is_flipped:
-            self.kill_sim()
-            time.sleep(20)
-            self.gazebo_process, self.cf_process = self.launch_sim()
-        
-        return observation, reward, is_terminal, {}
+        return observation
 
 
     def get_observation(self):
@@ -384,6 +155,108 @@ class CrazyflieEnv(gym.Env):
         return np.concatenate((position, angular_velocity, linear_acceleration, roll_pitch_yaw))
 
 
+    def step(self, action):
+        """ Executes an action and returns the resulting reward, state, and if 
+        the episode has terminated.
+
+        Args:
+            action (Hover): Desired velocties along the x, y, and z axes. 
+
+        Returns:
+            ndarray (dtype=float, ndim=1): Array containing the current state observation.  
+            int: Reward recieved from taking the action.
+            bool: Whether or not the drone reached a terminal state as a result of
+            of the action taken.
+        """
+        action_msg = self.process_action(action)
+        self.gazebo.unpauseSim()
+
+        self.hover_pub.publish(action_msg)
+        time.sleep(0.3)
+
+        observation = self.get_observation()
+        is_flipped = False
+
+        # check if drone has flipped during step (i.e. roll >= 60 degrees) 
+        if observation[2] < 0.1 and abs(observation[-3]) >= 60:
+            is_flipped = True
+            print('FLIPPED....')
+
+        else:
+            # bounce drone off right wall
+            if observation[0] > 9.5:
+                bump_msg = FullState()
+                bump_msg.pose.position.x = 9.0 
+                bump_msg.pose.position.y = observation[1]
+                bump_msg.pose.position.z = observation[2] 
+
+                rate = rospy.Rate(10)
+                i = 0
+                while i < 5:
+                    self.position_pub.publish(bump_msg)
+                    i += 1
+                    rate.sleep()
+
+                observation = self.get_observation()
+            # bounce drone off left wall
+            if observation[0] < -9.5:
+                bump_msg = FullState()
+                bump_msg.pose.position.x = -9.0 
+                bump_msg.pose.position.y = observation[1]
+                bump_msg.pose.position.z = observation[2] 
+
+                rate = rospy.Rate(10)
+                i = 0
+                while i < 5:
+                    self.position_pub.publish(bump_msg)
+                    i += 1
+                    rate.sleep()
+
+                observation = self.get_observation()
+            # bounce drone off back wall
+            if observation[1] > 9.5:
+                bump_msg = FullState()
+                bump_msg.pose.position.x = observation[0] 
+                bump_msg.pose.position.y = 9.0
+                bump_msg.pose.position.z = observation[2] 
+
+                rate = rospy.Rate(10)
+                i = 0
+                while i < 5:
+                    self.position_pub.publish(bump_msg)
+                    i += 1
+                    rate.sleep()
+
+                observation = self.get_observation()
+            # bounce drone off front wall
+            if observation[1] < -9.5:
+                bump_msg = FullState()
+                bump_msg.pose.position.x = observation[0] 
+                bump_msg.pose.position.y = -9.0 
+                bump_msg.pose.position.z = observation[2] 
+
+                rate = rospy.Rate(10)
+                i = 0
+                while i < 5:
+                    self.position_pub.publish(bump_msg)
+                    i += 1
+                    rate.sleep()
+
+                observation = self.get_observation()
+
+        # analyze results 
+        self.gazebo.pauseSim()
+        reward, is_terminal = self.reward(observation, is_flipped) 
+
+        # restart simulation if drone has flipped
+        if is_flipped:
+            self.kill_sim()
+            time.sleep(20)
+            self.gazebo_process, self.cf_process = self.launch_sim()
+        
+        return observation, reward, is_terminal, {}
+    
+
     def reward(self, observation, is_flipped):
         """ Returns the reward the drone will receive as a result of taking an action.
 
@@ -401,9 +274,9 @@ class CrazyflieEnv(gym.Env):
         reward = 0
         is_terminal = False
 
-        # reward altitude
+        # Encourage upward movement 
         # reward += 20 / abs(self.goal_position[2] - observation[2])
-        reward += 5*observation[2]
+        # reward += observation[2]
 
         if dist_to_goal < 1:
             reward += 400 
@@ -416,6 +289,40 @@ class CrazyflieEnv(gym.Env):
                 is_terminal = True
         
         return reward, is_terminal
+
+
+    def process_action(self, action):
+        """ Converts an array of actions into the necessary ROS msg type.
+
+        Args:
+            action (ndarray): Array containing the desired velocties along the 
+            x, y, and z axes. 
+
+        Returns:
+            Hover: ROS msg type necessary to publish a velocity command.  
+        """
+        
+        # Option 1: Hovering movements 
+        action_msg = Hover()
+        action_msg.vx = action[0] 
+        action_msg.vy = action[1] 
+        action_msg.zDistance = action[2]
+        action_msg.yawrate = 0 
+
+        # Option 2: Velocity movements 
+        # action_msg = Twist()
+        # action_msg.linear.x = action[0]
+        # action_msg.linear.y = action[1]
+        # action_msg.linear.z = action[2]
+        # action_msg.angular.z = 0 
+
+        # Option 3: Positon movements 
+        # action_msg = FullState()
+        # action_msg.pose.position.x = action[0] 
+        # action_msg.pose.position.y = action[1]
+        # action_msg.pose.position.z = action[2] 
+
+        return action_msg 
 
 
     def distance_between_points(self, point_a, point_b):
@@ -431,12 +338,133 @@ class CrazyflieEnv(gym.Env):
         return np.linalg.norm(point_a - point_b)
 
 
-    def check_topic_publishers_connection(self):
-        """ Ensures that connection has been established to the ROS publishers
-        used for movement control. 
+    def reset_old(self):
+        """ Returns the drone to a starting postion to begin a new training episode. 
+
+        Returns:
+            ndarray (dtype=float, ndim=1): Array containing the current state observation.  
         """
-        rate = rospy.Rate(10)
-        while (self.position_pub.get_num_connections() == 0):
-            rate.sleep()
-        while (self.vel_pub.get_num_connections() == 0):
-            rate.sleep()
+
+        self.gazebo.unpauseSim()
+        self.sim_reset = True
+
+        if not self.is_launch:
+            # reset yaw to avoid flipping during reset
+            # final_position = np.array(self.get_observation().values[:3])
+            final_position = self.get_observation()[:3]
+
+            stabilize_msg = FullState()
+            stabilize_msg.pose.position.x = final_position[0]
+            stabilize_msg.pose.position.y = final_position[1]
+            stabilize_msg.pose.position.z = final_position[2]
+
+            rate = rospy.Rate(10)
+            i = 0
+            while i < 20:
+                self.position_pub.publish(stabilize_msg)
+                i += 1
+                rate.sleep()
+
+        # reset to starting positon after stabilization
+        self.reset_position()
+
+        self.gazebo.pauseSim()
+        observation = self.get_observation()
+        self.is_launch = False 
+
+        return observation
+
+
+    def reset_position(self):
+        """ Returns the drone to the starting position.
+        """
+
+        try:
+            reset_msg = FullState()
+            reset_msg.pose.position.x = 0
+            reset_msg.pose.position.y = 0
+            reset_msg.pose.position.z = 2
+
+            rospy.loginfo("Go Home Start")
+            rate = rospy.Rate(10)
+            dist = np.inf
+            sim_reset = False
+            while dist > 0.1:
+                self.position_pub.publish(reset_msg)
+                cf_position = self.get_observation()[:3]
+                dist = self.distance_between_points(cf_position, np.array((0, 0, 2)))
+
+                # Check if drone has flipped over during reset
+                # Ensure that the sim was not just reset or will enter reset loop
+                # because the drone will spawn at z < -0.04 
+                # if not sim_reset and cf_position[2] < -0.04:
+                #     sim_reset = True
+                #     self.kill_sim()
+                #     time.sleep(20)
+                #     self.gazebo_process, self.cf_process = self.launch_sim()
+
+                rate.sleep()
+
+            rospy.loginfo("Go Home completed")
+
+        except rospy.ServiceException:
+            print("Go Home not working")
+
+
+    def step_high_level(self, action):
+        """ Executes an action and returns the resulting reward, state, and if 
+        the episode has terminated.
+
+        Args:
+            action (Hover): Desired velocties along the x, y, and z axes. 
+
+        Returns:
+            ndarray (dtype=float, ndim=1): Array containing the current state observation.  
+            int: Reward recieved from taking the action.
+            bool: Whether or not the drone reached a terminal state as a result of
+            of the action taken.
+        """
+
+        # Stops drone from crashing into back wall 
+        if action[0] > 9.5:
+            action[0] = 9.5
+        # Stops drone from crashing into front wall 
+        elif action[0] < -9.5:
+            action[0] = -9.5
+        # Stops drone from crashing into right wall 
+        elif action[1] > 9.5:
+            action[1] = 9.5
+        # Stops drone from crashing into left wall 
+        elif action[1] < -9.5:
+            action[1] = -9.5
+        # Stops drone from crashing into floor
+        elif action[2] < 0.5:
+            action[2] = 0.5
+        # Stops drone from crashing into ceiling 
+        elif action[2] > 9.5:
+            action[2] = 9.5
+
+        self.gazebo.unpauseSim()
+
+        self.cf.goTo(goal=[action[0], action[1], action[2]], yaw=0.0, duration=1)
+        time.sleep(0.3)
+
+        observation = self.get_observation()
+        is_flipped = False
+
+        # check if drone has flipped during step (i.e. roll >= 60 degrees) 
+        if observation[2] < 0.1 and abs(observation[-3]) >= 60:
+            is_flipped = True
+            print('FLIPPED....')
+
+        # analyze results 
+        self.gazebo.pauseSim()
+        reward, is_terminal = self.reward(observation, is_flipped) 
+
+        # restart simulation if drone has flipped
+        if is_flipped:
+            self.kill_sim()
+            time.sleep(20)
+            self.gazebo_process, self.cf_process = self.launch_sim()
+        
+        return observation, reward, is_terminal, {}

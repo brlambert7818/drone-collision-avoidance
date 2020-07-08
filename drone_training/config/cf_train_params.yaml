@@ -1,7 +1,3 @@
-# Algortihm Parameters
-nepisodes: 5
-nsteps: 50
-
 # Environment Parameters
 drone1:
     max_altitude: 2.0   # in meters
@@ -14,3 +10,22 @@ goal:
         x: 5
         y: 5
         z: 5
+
+# Reset positions
+reset_positions:
+    cf1:
+        x: 0.5
+        y: 0.0
+        z: 2.0
+    # cf2:
+    #     x: -0.5
+    #     y: 0.0
+    #     z: 2.0
+    # cf3:
+    #     x: 0.0
+    #     y: 0.5
+    #     z: 2.0
+    # cf4:
+    #     x: 0.0
+    #     y: -0.5
+    #     z: 2.0

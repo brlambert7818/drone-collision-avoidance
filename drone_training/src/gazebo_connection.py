@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import rospy
 from std_srvs.srv import Empty
@@ -19,7 +19,6 @@ class GazeboConnection():
 
         self.reset_world = rospy.ServiceProxy('/gazebo/reset_world', Empty)
         self.reset_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
-        self.takeoff_pub = rospy.Publisher('/cf1/cmd_full_state', FullState, queue_size=1)
 
 
     def pauseSim(self):
@@ -36,53 +35,3 @@ class GazeboConnection():
             self.unpause()
         except rospy.ServiceException:
             print ("/gazebo/unpause_physics service call failed")
-
-
-    def resetSim(self):
-        rospy.wait_for_service('/gazebo/reset_simulation')
-        try:
-            rospy.loginfo('Reset cf state')
-            self.reset_proxy()
-        except rospy.ServiceException:
-            rospy.loginfo('Reset cf state failed')
-
-
-    def resetSim_2(self):
-        rospy.wait_for_service('/gazebo/reset_world')
-        try:
-            rospy.loginfo('Reset cf state')
-            self.reset_world()
-        except rospy.ServiceException:
-            rospy.loginfo('Reset cf state failed')
-
-
-    def resetSim_new(self):
-        rospy.wait_for_service('/gazebo/set_model_state')
-        try:
-            self.reset_state(self.state_msg)
-            # self.pause()
-            print('reset new finished!')
-        except rospy.ServiceException:
-            print("/gazebo/reset_simulation service call failed")
-
-
-    def reset_position(self):
-        try:
-            reset_msg = FullState()
-            reset_msg.pose.position.x = 0
-            reset_msg.pose.position.y = 0
-            reset_msg.pose.position.z = 3
-
-            rospy.loginfo("Go Home Start")
-            rate = rospy.Rate(10)
-            dist = np.inf
-            while dist > 1:
-                self.takeoff_pub.publish(reset_msg)
-                cf_position = rospy.wait_for_message('/cf1/local_position', GenericLogData, timeout=5)
-                dist = self.distance_between_points(cf_position.values[:3], (0, 0, 3))
-                rate.sleep()
-
-            rospy.loginfo("Go Home completed")
-
-        except rospy.ServiceException:
-            print("Go Home not working")
