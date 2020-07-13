@@ -12,10 +12,11 @@ rospy.init_node('drone_gym', anonymous=True)
 if __name__ == '__main__':
     env_id = 'Crazyflie-v0'
     env = gym.make(env_id)
-    model = PPO2.load("ppo2_crazyflie")
+    path = 'models/hover/box_world/'
+    model = PPO2.load(path + 'ppo2_40000_steps')
 
     # Evaluate the agent
-    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
+    # mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
 
     # Observe trained agent 
     obs = env.reset()
