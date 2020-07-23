@@ -35,13 +35,13 @@ class CrazyflieEnv(gym.Env):
         self.hover_pub = rospy.Publisher('/cf1/cmd_hover', Hover, queue_size=1)
         self.vel_pub = rospy.Publisher('/cf1/cmd_vel', Twist, queue_size=1)
 
-        self.goal_position = np.array((2.5, 2.5, 5))
+        self.goal_position = np.array((5, 5, 5))
 
         # establishes connection with simulator
         self.gazebo_process, self.cf_process = self.launch_sim()
 
         # Gym spaces
-        self.action_space = spaces.Box(low=np.array([-0.4, -0.4, 0.25]), high=np.array([0.4, 0.4, 9.5]), dtype=np.float32)
+        self.action_space = spaces.Box(low=np.array([-0.4, -0.4, 0.25]), high=np.array([0.4, 0.4, 19.5]), dtype=np.float32)
         self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(12,), dtype=np.float32)
         self.reward_range = (-np.inf, np.inf)
         self.steps = 0
@@ -73,9 +73,9 @@ class CrazyflieEnv(gym.Env):
         self.cf = crazyflie.Crazyflie("cf1", "/cf1") 
         self.cf.setParam("commander/enHighLevel", 1)
 
-        reset_positions = self.random_position(-4, 5, 1, 10, 1)
+        reset_positions = self.random_position(-9, 10, 1, 20, 1)
 
-        # self.gazebo.unpauseSim()
+        self.gazebo.unpauseSim()
 
         print('Start Reset')
         self.cf.takeoff(targetHeight = reset_positions[0][2], duration = 4)
@@ -88,7 +88,7 @@ class CrazyflieEnv(gym.Env):
 
 
         observation = self.get_observation()
-        # self.gazebo.pauseSim()
+        self.gazebo.pauseSim()
 
         return observation
 
@@ -145,7 +145,7 @@ class CrazyflieEnv(gym.Env):
         self.steps += 1
 
         action_msg = self.process_action(action)
-        # self.gazebo.unpauseSim()
+        self.gazebo.unpauseSim()
 
         self.hover_pub.publish(action_msg)
         time.sleep(0.3)
@@ -162,7 +162,7 @@ class CrazyflieEnv(gym.Env):
             print('FLIPPED....')
 
         # Analyze results 
-        # self.gazebo.pauseSim()
+        self.gazebo.pauseSim()
         reward, is_terminal = self.reward(observation, is_flipped) 
 
         # Restart simulation if drone has flipped
@@ -324,19 +324,19 @@ class CrazyflieEnv(gym.Env):
         cf_posititon = self.get_position()
         
         # Bounce drone off right wall
-        if cf_posititon[0] >= 4.5 and action[0] > 0:
+        if cf_posititon[0] >= 9.5 and action[0] > 0:
             action[0] = 0
             cf_posititon = self.get_position()
         # Bounce drone off left wall
-        elif cf_posititon[0] <= -4.5 and action[0] < 0:
+        elif cf_posititon[0] <= -9.5 and action[0] < 0:
             action[0] = 0
             cf_posititon = self.get_position()
         # Bounce drone off back wall
-        if cf_posititon[1] >= 4.5 and action[1] > 0:
+        if cf_posititon[1] >= 9.5 and action[1] > 0:
             action[1] = 0
             cf_posititon = self.get_position()
         # Bounce drone off front wall
-        elif cf_posititon[1] <= -4.5 and action[1] < 0:
+        elif cf_posititon[1] <= -9.5 and action[1] < 0:
             action[1] = 0
             # cf_posititon = self.get_position()
 

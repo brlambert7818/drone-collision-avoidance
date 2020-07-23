@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-import cf_gym_env
+import cf_obstacle_gym_env
 import rospy
 import gym
 import numpy as np
@@ -72,7 +72,7 @@ def make_env(env_id, rank, log_dir, seed=0):
     :param rank: (int) index of the subprocess
     """
     def _init():
-        env = gym.make(env_id)
+        env = gym.make(env_id, n_obstacles=1)
         env = Monitor(env, log_dir)
         env.seed(seed + rank)
         return env
@@ -83,8 +83,8 @@ def make_env(env_id, rank, log_dir, seed=0):
 if __name__ == '__main__':
 
     rospy.init_node('drone_gym')
-    env_id = 'Crazyflie-v0'
-    log_dir = 'models/hover/empty_world_small/test'
+    env_id = 'CrazyflieObstacle-v0'
+    log_dir = 'models/hover/empty_world_small/heuristic'
     num_cpu = 1  # Number of processes to use
 
     # Create the vectorized environment
