@@ -10,9 +10,9 @@ from gym import utils, spaces
 from geometry_msgs.msg import Twist, Vector3Stamped, Pose
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Empty as EmptyTopicMsg
+from std_srvs.srv import Empty
 from gym.utils import seeding
 from gym.envs.registration import register
-from gazebo_connection import GazeboConnection
 from crazyflie_driver.msg import Hover, GenericLogData, Position, FullState
 import signal 
 import os
@@ -26,10 +26,11 @@ reg = register(
 
 class CrazyflieObstacleEnv(gym.Env):
 
-    def __init__(self, n_obstacles):
+    def __init__(self, n_obstacles, avoidance_method):
         super(CrazyflieObstacleEnv, self).__init__()
 
         self.n_obstacles = n_obstacles
+        self.avoidance_method = self.set_avoidance_method(avoidance_method)
         self.cfs = np.empty(n_obstacles + 1, dtype=object) 
         self.steps_since_avoided = np.zeros(n_obstacles)
 
@@ -38,10 +39,16 @@ class CrazyflieObstacleEnv(gym.Env):
         self.position_pub = rospy.Publisher('/cf2/cmd_position', Position, queue_size=1)
         self.hover_pub = rospy.Publisher('/cf1/cmd_hover', Hover, queue_size=1)
         self.vel_pub = rospy.Publisher('/cf1/cmd_vel', Twist, queue_size=1)
+        
+        self.hover_pubs = np.empty(n_obstacles+1, dtype=object)
+        for i in range(self.n_obstacles+1):
+            self.hover_pubs[i] = rospy.Publisher('/cf' + str(i+1) + '/cmd_hover', Hover, queue_size=1)
 
         self.goal_position = np.array((2.5, 2.5, 5))
 
         # establishes connection with simulator
+        self.unpause = rospy.ServiceProxy('/gazebo/unpause_physics', Empty)
+        self.pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
         self.gazebo_process, self.cf_process = self.launch_sim()
 
         # Gym spaces
@@ -158,14 +165,48 @@ class CrazyflieObstacleEnv(gym.Env):
             is_flipped = True
             print('FLIPPED....')
         reward, is_terminal = self.reward(observation, is_flipped) 
+        
+        if self.avoidance_method != 'None':
+            # dist_from_ob = np.repeat(np.inf, self.n_obstacles)
+            # positions = np.zeros(self.n_obstacles, dtype=object)
+            # Check if collision is imminent 
+            for i in range(2, self.n_obstacles + 2):
+                cf_position = observation[:3]
+                ob_position = self.get_position(i)
+                # positions[i-2] = ob_position
+                # dist_from_ob[i-2] = self.distance_between_points(cf_position, ob_position)
 
-        # Check if in collision field
-        for i in range(2, self.n_obstacles + 2):
-            cf_position = observation[:3]
-            ob_position = self.get_position(i)
-            # Tangential repulison collision heuristic
-            if self.distance_between_points(cf_position, ob_position) < 1:
-                self.repel(cf_position, ob_position, i)
+                if self.distance_between_points(cf_position, ob_position) < 1:
+                    if self.avoidance_method == 'Heuristic':
+                        self.repel(cf_position, ob_position, cf_id=1, ob_id=i)
+                    # Only repel from the first obstacle. Better implementation would
+                    # be to react to the closest. Code below does this but does not work yet
+                    break 
+            
+
+            # TO DO: 
+            #   - change angle of obstacles after collision so 2 doesn't come 
+            #     back and collide with 3 right away
+            #   - reduce iters and/or vel of obstacle-on-obstacle repulsion 
+            #   - figure out how to not hard code obstacle repulsion
+            cf2_pos = self.get_position(2)
+            cf3_pos = self.get_position(3)
+            if self.distance_between_points(cf2_pos, cf3_pos) < 1:
+                    self.repel(cf2_pos, cf3_pos, cf_id=2, ob_id=3)
+            
+            # If multiple obstacles are within collison range, then avoid the closest
+            # min_dist = np.min(dist_from_ob)
+            # if min_dist < 1:
+            #     min_index = np.argmin(dist_from_ob)
+            #     print('Avoid: ', min_index + 2)
+
+            # if self.avoidance_method == 'Heuristic':
+            #     self.repel(cf_position, ob_position, i)
+            # TO DO 
+            # if self.avoidance_method == 'RL Separate':
+            #     pass
+            # if self.avoidance_method == 'RL Combined':
+            #     pass
 
         # Restart simulation if drone has flipped
         if is_flipped:
@@ -220,8 +261,35 @@ class CrazyflieObstacleEnv(gym.Env):
 ################################################################################
 
 
-    def repel(self, cf_position, ob_position, cf_id):
-        self.steps_since_avoided[cf_id-2] = 1 
+    def set_avoidance_method(self, avoidance_method):
+        methods = ['Heuristic', 'RL Separate', 'RL Combined', 'None']
+        if avoidance_method in methods:
+            return avoidance_method 
+        else:
+            raise Exception('Invalid collision avoidance method chose. Please choose from the following: \n' + '\n'.join(methods))
+            
+
+
+    def pauseSim(self):
+        rospy.wait_for_service('/gazebo/pause_physics')
+        try:
+            self.pause()
+        except rospy.ServiceException:
+            print ("/gazebo/pause_physics service call failed")
+
+
+    def unpauseSim(self):
+        rospy.wait_for_service('/gazebo/unpause_physics')
+        try:
+            self.unpause()
+        except rospy.ServiceException:
+            print ("/gazebo/unpause_physics service call failed")
+
+
+    def repel(self, cf_position, ob_position, cf_id, ob_id):
+
+        if cf_id == 1:
+            self.steps_since_avoided[ob_id-2] = 1 
 
         # Get x,y velocities from tangential repulsion
         tan_angle = math.atan2(cf_position[1] - ob_position[1],
@@ -248,23 +316,24 @@ class CrazyflieObstacleEnv(gym.Env):
         for _ in range(3):
             cf_position = self.get_position(1)
 
-            # Bounce drone off right wall
-            if cf_position[0] >= 9.5 and action_msg.vx > 0:
-                action_msg.vx = 0
-                cf_position = self.get_position(1)
-            # Bounce drone off left wall
-            elif cf_position[0] <= -9.5 and action_msg.vx < 0:
-                action_msg.vx = 0
-                cf_position = self.get_position(1)
+            if cf_id == 1:
+                # Bounce drone off right wall
+                if cf_position[0] >= 9.5 and action_msg.vx > 0:
+                    action_msg.vx = 0
+                    cf_position = self.get_position(1)
+                # Bounce drone off left wall
+                elif cf_position[0] <= -9.5 and action_msg.vx < 0:
+                    action_msg.vx = 0
+                    cf_position = self.get_position(1)
 
-            # Bounce drone off back wall
-            if cf_position[1] >= 9.5 and action_msg.vy > 0:
-                action_msg.vy = 0
-                cf_position = self.get_position(1)
-            # Bounce drone off front wall
-            elif cf_position[1] <= -9.5 and action_msg.vy < 0:
-                action_msg.vy = 0
-                cf_position = self.get_position(1)
+                # Bounce drone off back wall
+                if cf_position[1] >= 9.5 and action_msg.vy > 0:
+                    action_msg.vy = 0
+                    cf_position = self.get_position(1)
+                # Bounce drone off front wall
+                elif cf_position[1] <= -9.5 and action_msg.vy < 0:
+                    action_msg.vy = 0
+                    cf_position = self.get_position(1)
 
             # Move cf upwards or downwards based on relative position of obstacle
             if z_increase:
@@ -273,7 +342,9 @@ class CrazyflieObstacleEnv(gym.Env):
                 action_msg.zDistance -= 0.1
             action_msg.zDistance = np.clip(action_msg.zDistance, 0.5, 9.5)
 
-            self.hover_pub.publish(action_msg)
+            print('Repel %i from %i' % (cf_id, ob_id))
+
+            self.hover_pubs[cf_id-1].publish(action_msg)
             time.sleep(0.3)
 
 
@@ -314,17 +385,14 @@ class CrazyflieObstacleEnv(gym.Env):
         """
         rospy.loginfo('LAUNCH SIM')
 
-        # Edit this launch file first depending on the number of cf's
-        launch_gazebo_cmd = 'roslaunch crazyflie_gazebo multiple_cf_sim.launch'
+        launch_gazebo_cmd = 'roslaunch crazyflie_gazebo multiple_cf_sim_' + str(self.n_obstacles+1) + '.launch'
         gazebo_process = subprocess.Popen(launch_gazebo_cmd, stdout=subprocess.PIPE, shell=True, preexec_fn=os.setsid)
         time.sleep(5)
-
-        self.gazebo = GazeboConnection()
 
         cf_gazebo_path = '/home/brian/catkin_ws/src/sim_cf/crazyflie_gazebo/scripts'
         launch_controller_cmd = './run_cfs.sh ' + str(self.n_obstacles + 1)
         cf_process = subprocess.Popen(launch_controller_cmd, stdout=subprocess.PIPE, cwd=cf_gazebo_path, shell=True, preexec_fn=os.setsid)
-        self.gazebo.unpauseSim()
+        self.unpauseSim()
         time.sleep(5)
 
         return gazebo_process, cf_process
@@ -352,10 +420,10 @@ class CrazyflieObstacleEnv(gym.Env):
     def move_obstacles(self):
         # Get primary agent position
         cf_position = self.get_position(1)
-        # Add noise to avoid obstacle always being on the tail of the agent
-        target_position = cf_position + np.random.normal(-0.5, 0.5, size = 3)
 
         for i in range(2, self.n_obstacles + 2):
+            # Add noise to avoid obstacle always being on the tail of the agent
+            target_position = cf_position + np.random.normal(-0.5, 0.5, size = 3)
             # Obstacle must wait 5 steps to move after it has been avoided
             if self.steps_since_avoided[i-2] == 0:
                 self.cfs[i-1].goTo(goal=[target_position[0], target_position[1], np.clip(target_position[2], 0.5, 9.5)], yaw=0.0, duration=4)

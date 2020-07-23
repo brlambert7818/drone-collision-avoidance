@@ -72,7 +72,7 @@ def make_env(env_id, rank, log_dir, seed=0):
     :param rank: (int) index of the subprocess
     """
     def _init():
-        env = gym.make(env_id, n_obstacles=1)
+        env = gym.make(env_id, n_obstacles=2, avoidance_method='Heuristic')
         env = Monitor(env, log_dir)
         env.seed(seed + rank)
         return env

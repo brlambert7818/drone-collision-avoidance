@@ -16,7 +16,6 @@ class GazeboConnection():
         self.unpause = rospy.ServiceProxy('/gazebo/unpause_physics', Empty)
         self.pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
         self.reset_proxy = rospy.ServiceProxy('/gazebo/reset_simulation', Empty)
-
         self.reset_world = rospy.ServiceProxy('/gazebo/reset_world', Empty)
         self.reset_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
 
