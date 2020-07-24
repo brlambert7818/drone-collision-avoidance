@@ -145,24 +145,17 @@ class CrazyflieEnv(gym.Env):
         self.steps += 1
 
         action_msg = self.process_action(action)
-        # self.gazebo.unpauseSim()
-
         self.hover_pub.publish(action_msg)
         time.sleep(0.3)
 
         observation = self.get_observation()
         is_flipped = False
 
-        # Check if drone has flipped (roll >= 60 degrees) 
-        # if observation[2] < 0.1 and abs(observation[-3]) >= 60:
-        #     is_flipped = True
-        #     print('FLIPPED....')
         if abs(observation[-3]) >= 60:
             is_flipped = True
             print('FLIPPED....')
 
         # Analyze results 
-        # self.gazebo.pauseSim()
         reward, is_terminal = self.reward(observation, is_flipped) 
 
         # Restart simulation if drone has flipped
@@ -191,10 +184,6 @@ class CrazyflieEnv(gym.Env):
         dist_to_goal = self.distance_between_points(cf_position, self.goal_position)
         reward = 0
         is_terminal = False
-
-        # Reward upward movement 
-        # reward += 20 / abs(self.goal_position[2] - observation[2])
-        # reward += observation[2] / 10
 
         # Reached goal
         if dist_to_goal < 1:

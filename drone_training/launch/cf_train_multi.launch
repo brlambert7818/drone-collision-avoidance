@@ -10,5 +10,5 @@
     <rosparam command="load" file="$(find drone_training)/config/cf_train_params.yaml" />
 
     <!-- Launch the training system -->
-    <node pkg="drone_training" name="gym_train" type="train_cf_heuristic.py" output="screen"/> 
+    <node pkg="drone_training" name="gym_train" type="train_multi_cf.py" output="screen"/> 
 </launch>
