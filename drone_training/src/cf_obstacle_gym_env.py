@@ -193,30 +193,38 @@ class CrazyflieObstacleEnv(gym.Env):
         #         if self.avoidance_method == 'RL Combined':
         #             pass
 
-        if self.avoidance_method != 'None':
+        # Still need ob-on-ob repulsion even if main cf will not use collision heuristic
+        start_cf = 1 if self.avoidance_method != 'None' else 2
 
-            for i in range(1, self.n_obstacles+1):
-                positions = np.zeros(self.n_obstacles, dtype=object)
-                dist_from_ob = np.repeat(np.inf, self.n_obstacles)
+        # Crazyflies being repelled
+        for i in range(start_cf, self.n_obstacles+1):
+            positions = np.zeros(self.n_obstacles, dtype=object)
+            dist_from_ob = np.repeat(np.inf, self.n_obstacles)
 
-                for j in range(i+1, self.n_obstacles+2):
-                    cf_position = self.get_position(i) 
-                    ob_position = self.get_position(j)
-                    positions[j-2] = ob_position
-                    dist_from_ob[j-2] = self.distance_between_points(cf_position, ob_position)
+            # Crazyflies doing the repelling
+            for j in range(i+1, self.n_obstacles+2):
+                cf_position = self.get_position(i) 
+                ob_position = self.get_position(j)
+                positions[j-2] = ob_position
+                dist_from_ob[j-2] = self.distance_between_points(cf_position, ob_position)
 
-                # Main cf repelled by the closest obstacle 
-                min_dist = np.min(dist_from_ob)
-                if min_dist < 1:
-                    min_index = np.argmin(dist_from_ob)
-                    cf_position = self.get_position(i)
+            # Main cf repelled by closest obstacle 
+            min_dist = np.min(dist_from_ob)
+            if min_dist < 1:
+                min_index = np.argmin(dist_from_ob)
+                cf_position = self.get_position(i)
 
-                    if self.avoidance_method == 'Heuristic':
-                        self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
-                    if self.avoidance_method == 'RL Separate':
-                        pass
-                    if self.avoidance_method == 'RL Combined':
-                        pass
+                # Always use repulsion for ob-on-ob avoidance
+                if i != 1:
+                    self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
+
+                # Use chosen avoidance method for cf1
+                elif self.avoidance_method == 'Heuristic':
+                    self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
+                elif self.avoidance_method == 'RL Separate':
+                    pass
+                elif self.avoidance_method == 'RL Combined':
+                    pass
         
         observation = self.get_observation()
 
