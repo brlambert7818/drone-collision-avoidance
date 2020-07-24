@@ -386,14 +386,3 @@ class MultiCrazyflieEnv(gym.Env):
             float: Euclidean distance between the two points.
         """
         return np.linalg.norm(point_a - point_b)
-
-
-    def check_topic_publishers_connection(self):
-        """ Ensures that connection has been established to the ROS publishers
-        used for movement control. 
-        """
-        rate = rospy.Rate(10)
-        while (self.position_pub.get_num_connections() == 0):
-            rate.sleep()
-        while (self.vel_pub.get_num_connections() == 0):
-            rate.sleep()

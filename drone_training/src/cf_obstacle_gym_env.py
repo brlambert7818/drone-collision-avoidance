@@ -153,6 +153,8 @@ class CrazyflieObstacleEnv(gym.Env):
         action_msg = self.process_action(action)
         self.hover_pub.publish(action_msg)
         time.sleep(0.3)
+
+        # Move the obstacles
         self.move_obstacles()
         time.sleep(0.3)
 
@@ -166,47 +168,57 @@ class CrazyflieObstacleEnv(gym.Env):
             print('FLIPPED....')
         reward, is_terminal = self.reward(observation, is_flipped) 
         
+        # if self.avoidance_method != 'None':
+        #     positions = np.zeros(self.n_obstacles, dtype=object)
+        #     dist_from_ob = np.repeat(np.inf, self.n_obstacles)
+        #     # Check if collision is imminent 
+        #     for i in range(2, self.n_obstacles + 2):
+        #         cf_position = self.get_position(1) 
+        #         ob_position = self.get_position(i)
+        #         positions[i-2] = ob_position
+        #         dist_from_ob[i-2] = self.distance_between_points(cf_position, ob_position)
+
+        #     # Main cf repelled by the closest obstacle 
+        #     min_dist = np.min(dist_from_ob)
+        #     if min_dist < 1:
+        #         print('dist list: ', dist_from_ob)
+        #         print('min: %f' % (min_dist))
+        #         min_index = np.argmin(dist_from_ob)
+        #         cf_position = self.get_position(1)
+
+        #         if self.avoidance_method == 'Heuristic':
+        #             self.repel(cf_position, positions[min_index], cf_id=1, ob_id=min_index+2)
+        #         if self.avoidance_method == 'RL Separate':
+        #             pass
+        #         if self.avoidance_method == 'RL Combined':
+        #             pass
+
         if self.avoidance_method != 'None':
-            # dist_from_ob = np.repeat(np.inf, self.n_obstacles)
-            # positions = np.zeros(self.n_obstacles, dtype=object)
-            # Check if collision is imminent 
-            for i in range(2, self.n_obstacles + 2):
-                cf_position = observation[:3]
-                ob_position = self.get_position(i)
-                # positions[i-2] = ob_position
-                # dist_from_ob[i-2] = self.distance_between_points(cf_position, ob_position)
 
-                if self.distance_between_points(cf_position, ob_position) < 1:
+            for i in range(1, self.n_obstacles+1):
+                positions = np.zeros(self.n_obstacles, dtype=object)
+                dist_from_ob = np.repeat(np.inf, self.n_obstacles)
+
+                for j in range(i+1, self.n_obstacles+2):
+                    cf_position = self.get_position(i) 
+                    ob_position = self.get_position(j)
+                    positions[j-2] = ob_position
+                    dist_from_ob[j-2] = self.distance_between_points(cf_position, ob_position)
+
+                # Main cf repelled by the closest obstacle 
+                min_dist = np.min(dist_from_ob)
+                if min_dist < 1:
+                    min_index = np.argmin(dist_from_ob)
+                    cf_position = self.get_position(i)
+
                     if self.avoidance_method == 'Heuristic':
-                        self.repel(cf_position, ob_position, cf_id=1, ob_id=i)
-                    # Only repel from the first obstacle. Better implementation would
-                    # be to react to the closest. Code below does this but does not work yet
-                    break 
-            
-
-            # TO DO: 
-            #   - change angle of obstacles after collision so 2 doesn't come 
-            #     back and collide with 3 right away
-            #   - reduce iters and/or vel of obstacle-on-obstacle repulsion 
-            #   - figure out how to not hard code obstacle repulsion
-            cf2_pos = self.get_position(2)
-            cf3_pos = self.get_position(3)
-            if self.distance_between_points(cf2_pos, cf3_pos) < 1:
-                    self.repel(cf2_pos, cf3_pos, cf_id=2, ob_id=3)
-            
-            # If multiple obstacles are within collison range, then avoid the closest
-            # min_dist = np.min(dist_from_ob)
-            # if min_dist < 1:
-            #     min_index = np.argmin(dist_from_ob)
-            #     print('Avoid: ', min_index + 2)
-
-            # if self.avoidance_method == 'Heuristic':
-            #     self.repel(cf_position, ob_position, i)
-            # TO DO 
-            # if self.avoidance_method == 'RL Separate':
-            #     pass
-            # if self.avoidance_method == 'RL Combined':
-            #     pass
+                        self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
+                    if self.avoidance_method == 'RL Separate':
+                        pass
+                    if self.avoidance_method == 'RL Combined':
+                        pass
+        
+        observation = self.get_observation()
 
         # Restart simulation if drone has flipped
         if is_flipped:
@@ -300,9 +312,9 @@ class CrazyflieObstacleEnv(gym.Env):
         # Convert to max velocities for avoidance
         for i in range(2):
             if vel_xy[i] > 0:
-                vel_xy[i] = 1
+                vel_xy[i] = 1 if cf_id == 1 else 0.5
             elif vel_xy[i] < 0:
-                vel_xy[i] = -1
+                vel_xy[i] = -1 if cf_id == 1 else -0.5
         
         # Get vertical avoidance
         z_increase = cf_position[2] >= ob_position[2]

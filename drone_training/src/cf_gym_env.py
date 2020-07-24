@@ -202,7 +202,7 @@ class CrazyflieEnv(gym.Env):
             is_terminal = True 
             print('REACHED GOAL.....')
         else:
-            if self.steps == 256:
+            if self.steps == 1024:
                 is_terminal = True
             # Penalize based on distance to goal
             reward -= dist_to_goal / 500

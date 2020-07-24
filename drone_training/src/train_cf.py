@@ -84,7 +84,7 @@ if __name__ == '__main__':
 
     rospy.init_node('drone_gym')
     env_id = 'Crazyflie-v0'
-    log_dir = 'models/hover/empty_world_small/test'
+    log_dir = 'models/hover/empty_world_small/full_state_2'
     num_cpu = 1  # Number of processes to use
 
     # Create the vectorized environment
@@ -97,13 +97,13 @@ if __name__ == '__main__':
     checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./' + log_dir, name_prefix='ppo2')
 
     # Train from scratch
-    model = PPO2(MlpPolicy, env, verbose=1)
-    model.learn(total_timesteps=200000, callback=save_best_callback)
+    # model = PPO2(MlpPolicy, env, verbose=1)
+    # model.learn(total_timesteps=200000, callback=[save_best_callback, checkpoint_callback])
 
     # Load trained params and continue training
-    # model = PPO2.load(log_dir + '/best_model')
-    # model.set_env(env)
-    # model.learn(total_timesteps=60000, callback=save_best_callback)
+    model = PPO2.load(log_dir + '/best_model')
+    model.set_env(env)
+    model.learn(total_timesteps=200000, callback=[save_best_callback, checkpoint_callback], reset_num_timesteps=False)
 
     results_plotter.plot_results([log_dir], 200000, results_plotter.X_TIMESTEPS, "PPO Crazyflie")
     plt.show()
