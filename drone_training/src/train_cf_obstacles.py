@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-import cf_obstacle_gym_env
+import cf_obstacles_gym_env
 import rospy
 import gym
 import numpy as np
@@ -72,7 +72,7 @@ def make_env(env_id, rank, log_dir, seed=0):
     :param rank: (int) index of the subprocess
     """
     def _init():
-        env = gym.make(env_id, n_obstacles=2, avoidance_method='Heuristic')
+        env = gym.make(env_id, n_obstacles=1, avoidance_method='None')
         env = Monitor(env, log_dir)
         env.seed(seed + rank)
         return env
@@ -84,7 +84,7 @@ if __name__ == '__main__':
 
     rospy.init_node('drone_gym')
     env_id = 'CrazyflieObstacle-v0'
-    log_dir = 'models/hover/empty_world_small/heuristic'
+    log_dir = 'models/hover/empty_world_small/rl_obstacles'
     num_cpu = 1  # Number of processes to use
 
     # Create the vectorized environment
@@ -94,18 +94,18 @@ if __name__ == '__main__':
     # Save best model every n steps and monitors performance
     save_best_callback = SaveOnBestTrainingRewardCallback(check_freq=500, log_dir=log_dir)
     # Save model every n steps 
-    checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./' + log_dir, name_prefix='ppo2')
+    checkpoint_callback = CheckpointCallback(save_freq=513, save_path='./' + log_dir, name_prefix='ppo2')
 
     # Train from scratch
-    model = PPO2(MlpPolicy, env, verbose=1)
-    model.learn(total_timesteps=200000, callback=save_best_callback)
+    # model = PPO2(MlpPolicy, env, verbose=1)
+    # model.learn(total_timesteps=200000, callback=save_best_callback)
 
     # Load trained params and continue training
-    # model = PPO2.load(log_dir + '/best_model')
-    # model.set_env(env)
-    # model.learn(total_timesteps=60000, callback=save_best_callback)
+    model = PPO2.load(log_dir + '/best_model')
+    model.set_env(env)
+    model.learn(total_timesteps=200000, callback=save_best_callback, reset_num_timesteps=False)
 
-    results_plotter.plot_results([log_dir], 200000, results_plotter.X_TIMESTEPS, "PPO Crazyflie")
-    plt.show()
+    # results_plotter.plot_results([log_dir], 200000, results_plotter.X_TIMESTEPS, "PPO Crazyflie")
+    # plt.show()
      
     env.close()

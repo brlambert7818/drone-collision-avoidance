@@ -16,6 +16,7 @@ import signal
 import os
 import subprocess
 import crazyflie
+import math
 
 
 reg = register(
@@ -25,10 +26,11 @@ reg = register(
 
 class MultiCrazyflieEnv(gym.Env):
 
-    def __init__(self, cf_id, gazebo, gazebo_process, cf_process):
+    def __init__(self, cf_id, n_obstacles, gazebo, gazebo_process, cf_process):
         super(MultiCrazyflieEnv, self).__init__()
 
         self.cf_id = cf_id
+        self.n_obstacles = n_obstacles
         self.gazebo = gazebo
         self.gazebo_process = gazebo_process
         self.cf_process = cf_process
@@ -37,7 +39,7 @@ class MultiCrazyflieEnv(gym.Env):
         self.position_pub = rospy.Publisher('/cf' + str(self.cf_id) + '/cmd_full_state', FullState, queue_size=1)
         self.hover_pub = rospy.Publisher('/cf' + str(self.cf_id) + '/cmd_hover', Hover, queue_size=1)
 
-        self.goal_position = np.array((2.5, 2.5, 5))
+        self.goal_position = np.array((2.5, 2.5, 4))
 
         # Gym spaces
         self.action_space = spaces.Box(low=np.array([-0.4, -0.4, 0.25]), high=np.array([0.4, 0.4, 9.5]), dtype=np.float32)
@@ -80,8 +82,8 @@ class MultiCrazyflieEnv(gym.Env):
 
         # check if need to get individual values from np array
         self.cf.goTo(goal=[reset_positions[0][0], reset_positions[0][1], reset_positions[0][2]], yaw=0.0, duration=4)
-        # time.sleep(4)
-        print('End Reset')
+        # time.sleep(1)
+        # print('End Reset')
 
         observation = self.get_observation()
 
@@ -154,6 +156,18 @@ class MultiCrazyflieEnv(gym.Env):
         # Analyze results 
         reward, is_terminal = self.reward(observation, is_flipped) 
 
+        # Heuristic repulsion
+        for i in range(1, self.n_obstacles+2):
+            if i != self.cf_id:
+                cf_position = self.get_position(self.cf_id) 
+                ob_position = self.get_position(i)
+
+                if self.distance_between_points(cf_position, ob_position) < 0.2:
+                    self.repel(cf_position, ob_position, cf_id=self.cf_id, ob_id=i)
+                    break
+        
+        observation = self.get_observation()
+
         # restart simulation if drone has flipped
         if is_flipped:
             self.kill_sim()
@@ -177,7 +191,7 @@ class MultiCrazyflieEnv(gym.Env):
             result of the previous action.
         """
 
-        cf_position = self.get_position()
+        cf_position = self.get_position(self.cf_id)
         dist_to_goal = self.distance_between_points(cf_position, self.goal_position)
         reward = 0
         is_terminal = False
@@ -209,11 +223,70 @@ class MultiCrazyflieEnv(gym.Env):
 ################################################################################
 
 
-    def get_position(self):
+    def repel(self, cf_position, ob_position, cf_id, ob_id):
+
+        # Get x,y velocities from tangential repulsion
+        tan_angle = math.atan2(cf_position[1] - ob_position[1],
+                                    cf_position[0] - ob_position[0])
+        tan_angle = (tan_angle + 2*math.pi) % (2*math.pi) 
+        vel_xy = np.array([math.cos(tan_angle), math.sin(tan_angle)])
+
+        # Convert to max velocities for avoidance
+        for i in range(2):
+            if vel_xy[i] > 0:
+                vel_xy[i] =  0.3
+            elif vel_xy[i] < 0:
+                vel_xy[i] =  -0.3
+        
+        # Get vertical avoidance
+        z_increase = cf_position[2] >= ob_position[2]
+
+        action_msg = Hover()
+        action_msg.vx = vel_xy[0] 
+        action_msg.vy = vel_xy[1] 
+        action_msg.zDistance = cf_position[2] 
+        action_msg.yawrate = 0 
+
+        # Num times to send the repulison Hover cmd
+        for _ in range(2):
+            cf_position = self.get_position(self.cf_id)
+
+            # Bounce drone off right wall
+            if cf_position[0] >= 9.5 and action_msg.vx > 0:
+                action_msg.vx = 0
+                cf_position = self.get_position(self.cf_id)
+            # Bounce drone off left wall
+            elif cf_position[0] <= -9.5 and action_msg.vx < 0:
+                action_msg.vx = 0
+                cf_position = self.get_position(self.cf_id)
+
+            # Bounce drone off back wall
+            if cf_position[1] >= 9.5 and action_msg.vy > 0:
+                action_msg.vy = 0
+                cf_position = self.get_position(self.cf_id)
+            # Bounce drone off front wall
+            elif cf_position[1] <= -9.5 and action_msg.vy < 0:
+                action_msg.vy = 0
+                cf_position = self.get_position(self.cf_id)
+
+            # Move cf upwards or downwards based on relative position of obstacle
+            if z_increase:
+                action_msg.zDistance += 0.1
+            else:
+                action_msg.zDistance -= 0.1
+            action_msg.zDistance = np.clip(action_msg.zDistance, 0.5, 9.5)
+
+            print('Repel %i from %i' % (cf_id, ob_id))
+
+            self.hover_pub.publish(action_msg)
+            time.sleep(0.3)
+
+
+    def get_position(self, cf_id):
         pose = None
         while pose is None:
             try:
-                pose = rospy.wait_for_message('/cf' + str(self.cf_id) + '/local_position', GenericLogData, timeout=5)
+                pose = rospy.wait_for_message('/cf' + str(cf_id) + '/local_position', GenericLogData, timeout=5)
             except:
                 rospy.loginfo("Crazyflie pose not ready yet, retrying for getting robot pose")
 
@@ -233,20 +306,20 @@ class MultiCrazyflieEnv(gym.Env):
             Hover: ROS msg type necessary to publish a velocity command.  
         """
 
-        cf_posititon = self.get_position()
+        cf_posititon = self.get_position(self.cf_id)
         
         # Bounce drone off right wall
         if cf_posititon[0] >= 4.5 and action[0] > 0:
             action[0] = 0
-            cf_posititon = self.get_position()
+            cf_posititon = self.get_position(self.cf_id)
         # Bounce drone off left wall
         elif cf_posititon[0] <= -4.5 and action[0] < 0:
             action[0] = 0
-            cf_posititon = self.get_position()
+            cf_posititon = self.get_position(self.cf_id)
         # Bounce drone off back wall
         if cf_posititon[1] >= 4.5 and action[1] > 0:
             action[1] = 0
-            cf_posititon = self.get_position()
+            cf_posititon = self.get_position(self.cf_id)
         # Bounce drone off front wall
         elif cf_posititon[1] <= -4.5 and action[1] < 0:
             action[1] = 0
