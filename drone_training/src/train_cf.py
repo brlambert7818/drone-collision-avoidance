@@ -8,52 +8,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from stable_baselines import PPO2, results_plotter
+from stable_baselines.common.evaluation import evaluate_policy
 from stable_baselines.common.policies import MlpPolicy
 from stable_baselines.common import set_global_seeds
 from stable_baselines import results_plotter
 from stable_baselines.bench import Monitor
 from stable_baselines.results_plotter import load_results, ts2xy
-from stable_baselines.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines.common.callbacks import BaseCallback, CheckpointCallback, StopTrainingOnRewardThreshold
 from stable_baselines.common.vec_env import DummyVecEnv, VecNormalize
 
-
-# class CheckFlippedCallback(BaseCallback):
-#     """
-#     A custom callback that derives from ``BaseCallback``.
-
-#     :param verbose: (int) Verbosity level 0: not output 1: info 2: debug
-#     """
-#     def __init__(self, verbose=0):
-#         super(CheckFlippedCallback, self).__init__(verbose=1)
-#         # Those variables will be accessible in the callback
-#         # (they are defined in the base class)
-#         # The RL model
-#         # self.model = None  # type: BaseRLModel
-#         # An alias for self.model.get_env(), the environment used for training
-#         # self.training_env = None  # type: Union[gym.Env, VecEnv, None]
-#         # Number of time the callback was called
-#         # self.n_calls = 0  # type: int
-#         # self.num_timesteps = 0  # type: int
-#         # local and global variables
-#         # self.locals = None  # type: Dict[str, Any]
-#         # self.globals = None  # type: Dict[str, Any]
-#         # The logger object, used to report things in the terminal
-#         # self.logger = None  # type: logger.Logger
-#         # # Sometimes, for event callback, it is useful
-#         # # to have access to the parent object
-#         # self.parent = None  # type: Optional[BaseCallback]
-
-#     def _on_step(self) -> bool:
-#         """
-#         This method will be called by the model after each call to `env.step()`.
-
-#         For child callback (of an `EventCallback`), this will be called
-#         when the event is triggered.
-
-#         :return: (bool) If the callback returns False, training is aborted early.
-#         """
-#         print(self.training_env)
-#         return True
 
 
 class SaveOnBestTrainingRewardCallback(BaseCallback):
@@ -101,7 +64,7 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
         return True
 
 
-def make_env(env_id, rank, log_dir, seed=0):
+def make_env(env_id, log_dir, seed=0):
     """
     Utility function for multiprocessed env.
 
@@ -113,40 +76,63 @@ def make_env(env_id, rank, log_dir, seed=0):
     def _init():
         env = gym.make(env_id)
         env = Monitor(env, log_dir)
-        env.seed(seed + rank)
+        env.seed(seed)
         return env
     set_global_seeds(seed)
     return _init
 
 
-if __name__ == '__main__':
+def moving_average(values, window):
+    """
+    Smooth values by doing a moving average
+    :param values: (numpy array)
+    :param window: (int)
+    :return: (numpy array)
+    """
+    weights = np.repeat(1.0, window) / window
+    return np.convolve(values, weights, 'valid')
 
+
+def plot_results(log_folder, title):
+    """
+    plot the results
+
+    :param log_folder: (str) the save location of the results to plot
+    :param title: (str) the title of the task to plot
+    """
+    x, y = ts2xy(load_results(log_folder), 'timesteps')
+    y = moving_average(y, window=50)
+    # Truncate x
+    x = x[len(x) - len(y):]
+
+    fig = plt.figure(title)
+    plt.plot(x, y)
+    plt.xlabel('Number of Timesteps')
+    plt.ylabel('Rewards')
+    plt.title(title + " Learning Curve Smoothed")
+    plt.show()
+
+     
+if __name__ == "__main__":
     rospy.init_node('drone_gym')
     env_id = 'Crazyflie-v0'
-    log_dir = 'models/hover/empty_world_small/final'
-    num_cpu = 1  # Number of processes to use
+    log_dir = 'models/hover/empty_world_small/finalVec'
 
-    # Create the vectorized environment
-    env = DummyVecEnv([make_env(env_id, i, log_dir) for i in range(num_cpu)])
-    env = VecNormalize(env)
+    env = DummyVecEnv([lambda: gym.make(env_id)])
+    # Automatically normalize the input features and reward
+    env = VecNormalize(env, norm_obs=True, norm_reward=True)
 
-    # Save best model every n steps and monitors performance
-    save_best_callback = SaveOnBestTrainingRewardCallback(check_freq=500, log_dir=log_dir)
-    # Save model every n steps 
-    checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./' + log_dir, name_prefix='ppo2')
-    # Check if the drone has flipped after each step
-    # flipped_callback = CheckFlippedCallback()
+    # # Save best model every n steps and monitors performance
+    # save_best_callback = SaveOnBestTrainingRewardCallback(check_freq=5, log_dir=log_dir)
+    # # Save model every n steps 
+    # checkpoint_callback = CheckpointCallback(save_freq=5, save_path='./' + log_dir, name_prefix='ppo2')
 
     # Train from scratch
-    # model = PPO2(MlpPolicy, env, verbose=1)
-    # model.learn(total_timesteps=200000, callback=[save_best_callback, checkpoint_callback])
+    model = PPO2(MlpPolicy, env, verbose=1)
+    model.learn(total_timesteps=80000)
+    # model.learn(total_timesteps=20, callback=[save_best_callback, checkpoint_callback])
 
-    # Load trained params and continue training
-    model = PPO2.load(log_dir + '/best_model')
-    model.set_env(env)
-    model.learn(total_timesteps=200000, callback=[save_best_callback, checkpoint_callback], reset_num_timesteps=False)
-
-    results_plotter.plot_results([log_dir], 200000, results_plotter.X_TIMESTEPS, "PPO Crazyflie")
-    plt.show()
-     
-    env.close()
+    # Don't forget to save the VecNormalize statistics when saving the agent
+    model.save(log_dir + "/ppo2_final")
+    stats_path = os.path.join(log_dir, "vec_normalize.pkl")
+    env.save(stats_path)

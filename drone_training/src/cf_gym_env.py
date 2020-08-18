@@ -41,8 +41,7 @@ class CrazyflieEnv(gym.Env):
         self.gazebo_process, self.cf_process = self.launch_sim()
 
         # Gym spaces
-        # self.action_space = spaces.Box(low=np.array([-0.4, -0.4, 0.25]), high=np.array([0.4, 0.4, 9.5]), dtype=np.float32)
-        self.action_space = spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
         self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(6,), dtype=np.float32)
         self.reward_range = (-np.inf, np.inf)
         self.steps = 0
@@ -51,24 +50,11 @@ class CrazyflieEnv(gym.Env):
 
 
     def seed(self, seed=None):
-        """ Generates a random seed for the training environment.
-
-        Args:
-            seed (int, optional): Random seed number. Defaults to None.
-
-        Returns:
-            int: Random seed number. 
-        """
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
 
     def reset(self):
-        """ Returns the drone to a starting postion to begin a new training episode. 
-
-        Returns:
-            ndarray (dtype=float, ndim=1): Array containing the current state observation.  
-        """
 
         self.gazebo.unpauseSim()
 
@@ -150,13 +136,6 @@ class CrazyflieEnv(gym.Env):
 
 
     def get_observation(self):
-        """ Returns the current drone state consisting of the following: (x, y, z)
-        positions, (x, y, z) angular velocities, (x, y, z) linear accelerations, 
-        and (roll, pitch, yaw) Euler angles in degrees. 
-
-        Returns:
-            ndarray (dtype=float, ndim=1): Array containing the current state observation.  
-        """
 
         pose = None
         while pose is None:
@@ -190,18 +169,6 @@ class CrazyflieEnv(gym.Env):
 
 
     def step(self, action):
-        """ Executes an action and returns the resulting reward, state, and if 
-        the episode has terminated.
-
-        Args:
-            action (Hover): Desired velocties along the x, y, and z axes. 
-
-        Returns:
-            ndarray (dtype=float, ndim=1): Array containing the current state observation.  
-            int: Reward recieved from taking the action.
-            bool: Whether or not the drone reached a terminal state as a result of
-            of the action taken.
-        """
         self.steps += 1
 
         action_msg = self.process_action(action)
@@ -234,18 +201,6 @@ class CrazyflieEnv(gym.Env):
     
 
     def reward(self, observation, is_flipped):
-        """ Returns the reward the drone will receive as a result of taking an action.
-
-        Args:
-            observation (ndarray, dtype=float, ndim=1): Array containing the current state observation.  
-            is_flipped (bool): Whether or not the drone has flipped onto its back
-            or side as a result of the previous action. 
-
-        Returns:
-            float: Reward for the drone to receive. 
-            bool: Whether or not the drone has reached a terminal state as the 
-            result of the previous action.
-        """
         cf_position = self.get_position()
         dist_to_goal = self.distance_between_points(cf_position, self.goal_position)
         reward = 0
@@ -260,10 +215,10 @@ class CrazyflieEnv(gym.Env):
             if self.steps == 256:
                 is_terminal = True
             # Penalize based on distance to goal
-            reward -= dist_to_goal / 500
+            reward -= dist_to_goal / 500 
             if is_flipped:
                 # Penalize if drone has flipped over
-                # reward -= 50 
+                # reward -= 100 
                 is_terminal = True
         
         return reward, is_terminal
@@ -312,13 +267,6 @@ class CrazyflieEnv(gym.Env):
 
     def launch_sim(self):
 
-        """ Executes bash commands to launch the Gazebo simulation, spawn a Crazyflie 
-        UAV, and create a controller for the Crazyflie.
-
-        Returns:
-            bash process: Process corresponding to the Gazebo simulation
-            bash process: Process corresponding to the Crazyflie model and controller 
-        """
         rospy.loginfo('LAUNCH SIM')
         launch_gazebo_cmd = 'roslaunch crazyflie_gazebo crazyflie_sim.launch'
         gazebo_process = subprocess.Popen(launch_gazebo_cmd, stdout=subprocess.PIPE, 
@@ -340,8 +288,6 @@ class CrazyflieEnv(gym.Env):
 
 
     def kill_sim(self):
-        """ Terminates the Gazeo and Crazyflie processes.
-        """
         rospy.loginfo('KILL SIM')
         os.killpg(os.getpgid(self.cf_process.pid), signal.SIGTERM)
         os.killpg(os.getpgid(self.gazebo_process.pid), signal.SIGTERM)
@@ -349,20 +295,6 @@ class CrazyflieEnv(gym.Env):
 
     
     def random_position(self, xy_min, xy_max, z_min, z_max, n_positions):
-        """ Returns randomized x,y,x posititons for each drone. The function will 
-        retry if the first generated position (the position for the primary agent) 
-        is the same as the goal position.
-
-        Args:
-            xy_min (int): Inclusive minimum value for the x and y axes.
-            xy_max (int): Exclusive maximum value for the x and y axes.
-            z_min (int): Inclusive minimum value for the z axis.
-            z_max (int): Exclusive maximum value for the z axis.
-            n_positions (int): Number of positions to generate. 
-
-        Returns:
-            ndarray (dtype=float, ndim=(n_positions, 3)): [description]
-        """
         while True:
             try:
                 xy = np.random.randint(xy_min, xy_max, size=(n_positions, 2))
@@ -374,15 +306,6 @@ class CrazyflieEnv(gym.Env):
 
 
     def distance_between_points(self, point_a, point_b):
-        """ Returns the Euclidean distance between two points.
-
-        Args:
-            point_a (list): (x, y, z) coordinates of the first point. 
-            point_a (list): (x, y, z) coordinates of the second point. 
-
-        Returns:
-            float: Euclidean distance between the two points.
-        """
         return np.linalg.norm(point_a - point_b)
 
 
@@ -400,7 +323,7 @@ class CrazyflieEnv(gym.Env):
         action[0] = self.unnormalize(action[0], -0.4, 0.4)
         action[1] = self.unnormalize(action[1], -0.4, 0.4)
         action[2] = self.unnormalize(action[2], 0.25, 9.75)
-        action[3] = self.unnormalize(action[3], -200, 200)
+        # action[3] = self.unnormalize(action[3], -200, 200)
 
         # action[0] = self.unnormalize(action[0], -30, 30)
         # action[1] = self.unnormalize(action[1], -30, 30)
@@ -439,7 +362,8 @@ class CrazyflieEnv(gym.Env):
         action_msg.vx = action[0] 
         action_msg.vy = action[1] 
         action_msg.zDistance = action[2]
-        action_msg.yawrate = action[3] 
+        # action_msg.yawrate = action[3] 
+        action_msg.yawrate = 0 
 
         # Option 2: Velocity movements 
         # action_msg = Twist()

@@ -41,6 +41,8 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         if self.n_calls % self.check_freq == 0:
+          stats_path = os.path.join(log_dir, "vec_normalize.pkl")
+          self.model.env.save(stats_path)
 
           # Retrieve training reward
           x, y = ts2xy(load_results(self.log_dir), 'timesteps')
@@ -62,7 +64,7 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
         return True
 
 
-def make_env(env_id, rank, log_dir, seed=0):
+def make_env(env_id, log_dir, seed=0):
     """
     Utility function for multiprocessed env.
 
@@ -72,40 +74,34 @@ def make_env(env_id, rank, log_dir, seed=0):
     :param rank: (int) index of the subprocess
     """
     def _init():
-        env = gym.make(env_id, n_obstacles=1, avoidance_method='None')
+        env = gym.make(env_id, n_obstacles=1, avoidance_method='Heuristic')
         env = Monitor(env, log_dir)
-        env.seed(seed + rank)
+        env.seed(seed)
         return env
     set_global_seeds(seed)
     return _init
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     rospy.init_node('drone_gym')
     env_id = 'CrazyflieObstacle-v0'
-    log_dir = 'models/hover/empty_world_small/rl_obstacles'
-    num_cpu = 1  # Number of processes to use
+    log_dir = 'models/hover/empty_world_small/rlVec'
 
-    # Create the vectorized environment
-    env = DummyVecEnv([make_env(env_id, i, log_dir) for i in range(num_cpu)])
-    env = VecNormalize(env)
+    # env = DummyVecEnv([lambda: gym.make(env_id, n_obstacles=1, avoidance_method='None')])
+    env = DummyVecEnv([make_env(env_id, log_dir)])
+    # Automatically normalize the input features and reward
+    env = VecNormalize(env, norm_obs=True, norm_reward=True)
 
-    # Save best model every n steps and monitors performance
+    # # Save best model every n steps and monitors performance
     save_best_callback = SaveOnBestTrainingRewardCallback(check_freq=500, log_dir=log_dir)
-    # Save model every n steps 
-    checkpoint_callback = CheckpointCallback(save_freq=513, save_path='./' + log_dir, name_prefix='ppo2')
+    # # Save model every n steps 
+    # checkpoint_callback = CheckpointCallback(save_freq=5, save_path='./' + log_dir, name_prefix='ppo2')
 
     # Train from scratch
-    # model = PPO2(MlpPolicy, env, verbose=1)
-    # model.learn(total_timesteps=200000, callback=save_best_callback)
+    model = PPO2(MlpPolicy, env, verbose=1)
+    model.learn(total_timesteps=50000, callback=save_best_callback)
 
-    # Load trained params and continue training
-    model = PPO2.load(log_dir + '/best_model')
-    model.set_env(env)
-    model.learn(total_timesteps=200000, callback=save_best_callback, reset_num_timesteps=False)
-
-    # results_plotter.plot_results([log_dir], 200000, results_plotter.X_TIMESTEPS, "PPO Crazyflie")
-    # plt.show()
-     
-    env.close()
+    # Don't forget to save the VecNormalize statistics when saving the agent
+    model.save(log_dir + "/ppo2_final")
+    stats_path = os.path.join(log_dir, "vec_normalize.pkl")
+    env.save(stats_path)

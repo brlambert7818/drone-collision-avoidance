@@ -20,11 +20,11 @@ import subprocess
 import crazyflie
 
 reg = register(
-    id='CrazyflieObstacle-v0',
-    entry_point='cf_obstacles_gym_env:CrazyflieObstacleEnv',
+    id='CrazyflieObstacleEval-v0',
+    entry_point='cf_obstacles_gym_env_eval:CrazyflieObstacleEnvEval',
     )
 
-class CrazyflieObstacleEnv(gym.Env):
+class CrazyflieObstacleEnvEval(gym.Env):
 
     def __init__(self, n_obstacles, avoidance_method):
         super(CrazyflieObstacleEnv, self).__init__()
@@ -52,8 +52,9 @@ class CrazyflieObstacleEnv(gym.Env):
         self.gazebo_process, self.cf_process = self.launch_sim()
 
         # Gym spaces
-        self.action_space = spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(6 + 3*n_obstacles,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(6 + (3*n_obstacles),), dtype=np.float32)
+        # self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(6,), dtype=np.float32)
         self.reward_range = (-np.inf, np.inf)
         self.steps = 0
 
@@ -71,6 +72,9 @@ class CrazyflieObstacleEnv(gym.Env):
         self.steps_since_avoided = np.zeros(self.n_obstacles)
         reset_positions = self.random_position(-4, 5, 1, 10, self.n_obstacles + 1)
 
+        # for eval
+        # reset_positions[1] = self.goal_position
+
         print('Start Reset')
 
         # Connect to Crazyflie and enable high-level control
@@ -86,6 +90,46 @@ class CrazyflieObstacleEnv(gym.Env):
         for i in range(self.n_obstacles + 1):
             self.cfs[i].goTo(goal=[reset_positions[i][0], reset_positions[i][1], reset_positions[i][2]], yaw=0.0, duration=4)
         time.sleep(4)
+
+        # cf1 reset
+        ############################
+
+        # cf_position = self.get_position(1)
+        # action_msg = Hover()
+        # action_msg.vx = cf_position[0] 
+        # action_msg.vy = cf_position[1] 
+        # action_msg.zDistance = reset_positions[0][2]
+        # action_msg.yawrate = 0 
+
+        # while abs(self.get_position(1)[2] - reset_positions[0][2]) > 1:
+        #     self.hover_pub.publish(action_msg)
+        #     time.sleep(0.3)
+
+        #     # check if drone flipped during the reset
+        #     roll = self.get_pose(1)[3]
+        #     if abs(roll) >= 60:
+        #         self.kill_sim()
+        #         time.sleep(20)
+        #         self.gazebo_process, self.cf_process = self.launch_sim()
+
+        # action_msg = Position()
+        # action_msg.x = reset_positions[0][0] 
+        # action_msg.y = reset_positions[0][1]
+        # action_msg.z = reset_positions[0][2] 
+        # action_msg.yaw = 0 
+
+        # while self.distance_between_points(self.get_position(1), reset_positions[0]) > 1:
+        #     self.position_pub.publish(action_msg)
+        #     time.sleep(0.3)
+
+        #     # check if drone flipped during the reset
+        #     roll = self.get_pose(1)[3]
+        #     if abs(roll) >= 60:
+        #         self.kill_sim()
+        #         time.sleep(20)
+        #         self.gazebo_process, self.cf_process = self.launch_sim()
+
+        ############################
 
         print('End Reset')
 
@@ -116,24 +160,52 @@ class CrazyflieObstacleEnv(gym.Env):
                 roll_pitch_yaw = np.array(pose.values[3:])
                 observation = np.append(observation, roll_pitch_yaw)
 
+        # ob_vel = np.array([])
+        # for i in range(2, self.n_obstacles+2):
+        #     # get angular velocities and linear accelerations 
+        #     imu = None
+        #     while imu is None:
+        #         try:
+        #             imu = rospy.wait_for_message('/cf' + str(i) + '/imu', Imu, timeout=5)
+        #         except:
+        #             rospy.loginfo("Crazyflie 1 imu not ready yet, retrying for getting robot imu")
+
+        #     linear_acceleration = np.array((imu.linear_acceleration.x, imu.linear_acceleration.y, imu.linear_acceleration.z))
+        #     ob_vel.append(linear_acceleration)
+
+        # return np.concatenate((position, angular_velocity, linear_acceleration, roll_pitch_yaw))
+
         return observation
 
 
     def step(self, action):
 
+        avoided_collision = False 
+        needs_to_avoid = False
+        
+        if self.distance_between_points(self.get_position(1), self.get_position(2)) < 1:
+            needs_to_avoid = True
+
         # Perform the action
         self.steps += 1
         action_msg = self.process_action(action)
-        self.unpauseSim()
 
+        self.unpauseSim()
         self.hover_pub.publish(action_msg)
         time.sleep(0.3)
+        self.pauseSim()
 
+        if needs_to_avoid:
+            avoided_collision = self.distance_between_points(self.get_position(1), self.get_position(2)) > 0.5 
+
+        self.unpauseSim()
         # Move the obstacles
         self.move_obstacles()
         time.sleep(0.3)
-
         self.pauseSim()
+
+        # if self.distance_between_points(self.get_position(1), self.get_position(2)) < 1:
+        #     needs_to_avoid = True
 
         # Get next observation
         observation = self.get_observation()
@@ -147,42 +219,86 @@ class CrazyflieObstacleEnv(gym.Env):
                 print('FLIPPED....')
                 break
 
-        reward, is_terminal = self.reward(observation, is_flipped) 
+        # Check for a collision
+        # is_collision = False
+        # if needs_to_avoid and not avoided_collision:
+        #     is_collision = True
+
+        is_collision = False
+        for i in range(2, self.n_obstacles+2):
+            if self.distance_between_points(self.get_position(1), self.get_position(i)) < 0.5:
+                is_collision = True
+                break
+
+        reached_goal = False
+        if self.distance_between_points(self.get_position(1), self.goal_position) < 1:
+            reached_goal = True
+        
+        max_steps = False
+        if self.steps == 256:
+            max_steps = True
+
+        reward, is_terminal = self.reward(observation, is_flipped, is_collision, reached_goal, max_steps) 
         
         # Still need ob-on-ob repulsion even if main cf will not use collision heuristic
-        start_cf = 1 if self.avoidance_method != 'None' else 2
+        # start_cf = 1 if self.avoidance_method != 'None' else 2
 
-        # Crazyflies being repelled
-        for i in range(start_cf, self.n_obstacles+1):
-            positions = np.zeros(self.n_obstacles, dtype=object)
-            dist_from_ob = np.repeat(np.inf, self.n_obstacles)
+        # # Crazyflies being repelled
+        # for i in range(start_cf, self.n_obstacles+1):
+        #     positions = np.zeros(self.n_obstacles, dtype=object)
+        #     dist_from_ob = np.repeat(np.inf, self.n_obstacles)
 
-            # Crazyflies doing the repelling
-            for j in range(i+1, self.n_obstacles+2):
-                cf_position = self.get_position(i) 
-                ob_position = self.get_position(j)
-                positions[j-2] = ob_position
-                dist_from_ob[j-2] = self.distance_between_points(cf_position, ob_position)
+        #     # Crazyflies doing the repelling
+        #     for j in range(i+1, self.n_obstacles+2):
+        #         cf_position = self.get_position(i) 
+        #         ob_position = self.get_position(j)
+        #         positions[j-2] = ob_position
+        #         dist_from_ob[j-2] = self.distance_between_points(cf_position, ob_position)
 
-            # Main cf repelled by closest obstacle 
-            min_dist = np.min(dist_from_ob)
-            if min_dist < 1:
-                min_index = np.argmin(dist_from_ob)
-                cf_position = self.get_position(i)
+        #     # Main cf repelled by closest obstacle 
+        #     min_dist = np.min(dist_from_ob)
+        #     if min_dist < 1:
+        #         min_index = np.argmin(dist_from_ob)
+        #         cf_position = self.get_position(i)
 
-                # Always use repulsion for ob-on-ob avoidance
-                if i != 1:
-                    self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
+        #         # Always use repulsion for ob-on-ob avoidance
+        #         if i != 1:
+        #             self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
 
-                # Use chosen avoidance method for cf1
-                elif self.avoidance_method == 'Heuristic':
-                    self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
-                elif self.avoidance_method == 'RL Separate':
-                    pass
-                elif self.avoidance_method == 'RL Combined':
-                    pass
+        #         # Use chosen avoidance method for cf1
+        #         elif self.avoidance_method == 'Heuristic':
+        #             self.unpauseSim()
+        #             self.repel(cf_position, positions[min_index], cf_id=i, ob_id=min_index+2)
+
+        #             action_msg = Hover()
+        #             action_msg.vx = cf_position[0] 
+        #             action_msg.vy = cf_position[1] 
+        #             action_msg.zDistance = cf_position[2]
+        #             action_msg.yawrate = 0 
+
+        #             for _ in range(2):
+        #                 self.hover_pub.publish(action_msg)
+        #                 time.sleep(0.3)
+
+        #             self.pauseSim()
+
+        #             needs_to_avoid = True
+        #             avoided_collision = True
+        #         elif self.avoidance_method == 'RL Separate':
+        #             pass
+        #         elif self.avoidance_method == 'RL Combined':
+        #             pass
         
-        observation = self.get_observation()
+        # observation = self.get_observation()
+
+        # if needs_to_avoid:
+        #     avoided_collision = self.distance_between_points(self.get_position(1), self.get_position(2)) > 0.5 
+
+        # is_collision = False
+        # if needs_to_avoid and not avoided_collision:
+        #     is_collision = True
+
+        # reward, is_terminal = self.reward(observation, is_flipped, is_collision, reached_goal, max_steps) 
 
         # Restart simulation if drone has flipped
         if is_flipped:
@@ -190,28 +306,35 @@ class CrazyflieObstacleEnv(gym.Env):
             time.sleep(25)
             self.gazebo_process, self.cf_process = self.launch_sim()
         
-        return observation, reward, is_terminal, {}
+        return observation, reward, is_terminal, {"needs_to_avoid": needs_to_avoid,
+                                                  "avoided_collision": avoided_collision, 
+                                                  "reached_goal": reached_goal,
+                                                  "flipped": is_flipped, 
+                                                  "exceeded_steps": max_steps
+                                                  }
     
 
-    def reward(self, observation, is_flipped):
-        dist_to_goal = self.distance_between_points(observation[:3], self.goal_position)
+    def reward(self, observation, is_flipped, is_collision, reached_goal, max_steps):
+
+        # dist_to_goal = self.distance_between_points(observation[:3], self.goal_position)
+        dist_to_goal = self.distance_between_points(self.get_position(1), self.goal_position)
         reward = 0
         is_terminal = False
 
-        for i in range(2, self.n_obstacles+2):
-            if self.distance_between_points(self.get_position(1), self.get_position(i)) < 0.5:
-                print('CRASHED....')
-                reward -= 100 
-                is_terminal = True
-                break
+        if is_collision:
+            print('CRASHED....')
+            reward -= 100 
+            is_terminal = True
 
         # Reached goal
-        if dist_to_goal < 1:
+        # if dist_to_goal < 1:
+        if reached_goal:
             reward += 100 
             is_terminal = True 
             print('REACHED GOAL.....')
         else:
-            if self.steps == 256:
+            # if self.steps == 256:
+            if max_steps:
                 is_terminal = True
             # Penalize based on distance to goal
             reward -= dist_to_goal / 500
@@ -283,7 +406,7 @@ class CrazyflieObstacleEnv(gym.Env):
         action_msg.yawrate = 0 
 
         # self.unpauseSim()
-        for _ in range(3):
+        for _ in range(4):
             cf_position = self.get_position(1)
 
             if cf_id == 1:
@@ -369,9 +492,20 @@ class CrazyflieObstacleEnv(gym.Env):
 
     def launch_sim(self):
 
+        """ Executes bash commands to launch the Gazebo simulation, spawn a Crazyflie 
+        UAV, and create a controller for the Crazyflie.
+
+        Returns:
+            bash process: Process corresponding to the Gazebo simulation
+            bash process: Process corresponding to the Crazyflie model and controller 
+        """
         rospy.loginfo('LAUNCH SIM')
         
-        launch_gazebo_cmd = 'roslaunch crazyflie_gazebo multiple_cf_sim_' + str(self.n_obstacles+1) + '.launch'
+        launch_gazebo_cmd = ''
+        if self.n_obstacles > 0:
+            launch_gazebo_cmd = 'roslaunch crazyflie_gazebo multiple_cf_sim_' + str(self.n_obstacles+1) + '.launch'
+        else:
+            launch_gazebo_cmd = 'roslaunch crazyflie_gazebo crazyflie_sim.launch'
         gazebo_process = subprocess.Popen(launch_gazebo_cmd, stdout=subprocess.PIPE, shell=True, preexec_fn=os.setsid)
         time.sleep(5)
 
@@ -385,6 +519,8 @@ class CrazyflieObstacleEnv(gym.Env):
 
 
     def kill_sim(self):
+        """ Terminates the Gazeo and Crazyflie processes.
+        """
         rospy.loginfo('KILL SIM')
         os.killpg(os.getpgid(self.cf_process.pid), signal.SIGTERM)
         os.killpg(os.getpgid(self.gazebo_process.pid), signal.SIGTERM)
@@ -417,7 +553,7 @@ class CrazyflieObstacleEnv(gym.Env):
         # Update steps since avoidance
         for i in range(self.n_obstacles):
             if self.steps_since_avoided[i] > 0:
-                if self.steps_since_avoided[i] == 3:
+                if self.steps_since_avoided[i] == 1:
                     self.steps_since_avoided[i] = 0
                 else:
                     self.steps_since_avoided[i] += 1
@@ -428,7 +564,7 @@ class CrazyflieObstacleEnv(gym.Env):
         action[0] = self.unnormalize(action[0], -0.4, 0.4)
         action[1] = self.unnormalize(action[1], -0.4, 0.4)
         action[2] = self.unnormalize(action[2], 0.25, 9.75)
-        action[3] = self.unnormalize(action[3], -100, 100)
+        # action[3] = self.unnormalize(action[3], -200, 200)
         
         cf_posititon = self.get_position(1)
         
