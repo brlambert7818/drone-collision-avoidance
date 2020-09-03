@@ -6,7 +6,8 @@ University of Edinburgh MSc Cognitive Science dissertation on drone collision av
 
 ## Simulation Software Stack
 - The simulation software stack is comprised of ROS, Gazebo, and OpenAI Gym
-- This code was tested on 'Ubuntu 16.04'
-- The code relies on the 'sim_cf' package from 'https://github.com/wuwushrek/sim_cf'
+- This code was tested on `Ubuntu 16.04`
+- The code relies on the `sim_cf` package from 'https://github.com/wuwushrek/sim_cf'
   - Following the intall instructions in the above repo will install and compile ROS, Gazebeo7, and the Crazyflie Gazebo firmware
-- The drone used for this research project is the 'Crazyflie 2.0' from Bitcraze 'https://www.bitcraze.io/products/old-products/crazyflie-2-0/'
+- The drone used for this research project is the `Crazyflie 2.0` from Bitcraze 'https://www.bitcraze.io/products/old-products/crazyflie-2-0/'
+![Crazyflie 2.0](/images/cf_real.jpg)
