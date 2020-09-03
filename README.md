@@ -16,7 +16,7 @@ University of Edinburgh MSc Cognitive Science dissertation on drone collision av
 ## Training
 - The default Gazebo world to train in is 'empty_word' which is a simple ground plane
   - This can be changed to 'box_world' by changing the default world name in `/sim_cf/crazyflie_gazebo/launch/crazyflie_sim.launch` for single drone use or         `/sim_cf/crazyflie_gazebo/launch/multiple_cf_sim.launch` for multi drone use
-  ![Crazyflie 2.0](/empty_world.png | 50%) ![Crazyflie 2.0](/box_world.png | 50%)
+  ![Crazyflie 2.0](/empty_world.png) ![Crazyflie 2.0](/box_world.png)
 - To begin trianing a single drone to nagivate towards a goal, execute the following terminal command: `roslaunch drone_training cf_train.launch`
 - To begin trianing a single drone to nagivate towards a goal while avoidng obstacles, execute the following terminal command: `roslaunch drone_training cf_train_obstacles.launch`
 - The trained models can be evualted with the following terminal command: `roslaunch drone_training cf_evaluate.launch`
