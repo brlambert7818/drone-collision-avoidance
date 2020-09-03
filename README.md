@@ -7,7 +7,13 @@ University of Edinburgh MSc Cognitive Science dissertation on drone collision av
 ## Simulation Software Stack
 - The simulation software stack is comprised of ROS, Gazebo, and OpenAI Gym
 - This code was tested on `Ubuntu 16.04`
-- The code relies on the `sim_cf` package from 'https://github.com/wuwushrek/sim_cf'
+- The code relies on the `sim_cf` package from https://github.com/wuwushrek/sim_cf
   - Following the intall instructions in the above repo will install and compile ROS, Gazebeo7, and the Crazyflie Gazebo firmware
-- The drone used for this research project is the `Crazyflie 2.0` from Bitcraze 'https://www.bitcraze.io/products/old-products/crazyflie-2-0/'
+- The drone used for this research project is the `Crazyflie 2.0` from Bitcraze https://www.bitcraze.io/products/old-products/crazyflie-2-0/
 ![Crazyflie 2.0](/cf_real.jpg)
+
+## Training
+- The default Gazebo world to train in is 'empty_word' which is a simple ground plane
+  - This can be changed to 'box_world' by changing the default world name in `/sim_cf/crazyflie_gazebo/launch/crazyflie_sim.launch` for single drone use or         `/sim_cf/crazyflie_gazebo/launch/multiple_cf_sim.launch` for multi drone use
+- To begin trianing a single drone to nagivate towards a goal, execute the following terminal command: `roslaunch drone_training cf_train.launch`
+- To begin trianing a single drone to nagivate towards a goal while avoidng obstacles, execute the following terminal command: `roslaunch drone_training cf_train_obstacles.launch`
