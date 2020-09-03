@@ -10,4 +10,4 @@ University of Edinburgh MSc Cognitive Science dissertation on drone collision av
 - The code relies on the `sim_cf` package from 'https://github.com/wuwushrek/sim_cf'
   - Following the intall instructions in the above repo will install and compile ROS, Gazebeo7, and the Crazyflie Gazebo firmware
 - The drone used for this research project is the `Crazyflie 2.0` from Bitcraze 'https://www.bitcraze.io/products/old-products/crazyflie-2-0/'
-![Crazyflie 2.0](/images/cf_real.jpg)
+![Crazyflie 2.0](/cf_real.jpg)
